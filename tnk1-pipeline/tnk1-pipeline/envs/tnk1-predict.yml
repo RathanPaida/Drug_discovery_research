@@ -1,0 +1,24 @@
+name: tnk1-predict
+channels: [pytorch, nvidia, conda-forge, defaults]
+dependencies:
+  - python=3.10
+  - pytorch>=2.1          # choose the CUDA 11.8 / 12.1 build for your driver
+  - rdkit>=2023.09
+  - scikit-learn
+  - numpy
+  - pandas
+  - scipy
+  - pyarrow
+  - pyyaml
+  - pip
+  - pip:
+      - torch_geometric        # optional; the in-repo D-MPNN does not require it
+      - chemprop>=2.0          # optional; reference implementation / cross-checks
+      - xgboost
+      - gpytorch
+      - fair-esm
+      - mapie                  # optional; in-repo split conformal is dependency-free
+      - PyTDC
+      - aizynthfinder
+      - wandb                  # or mlflow
+      - pytest

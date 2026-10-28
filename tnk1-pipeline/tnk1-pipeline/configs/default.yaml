@@ -1,0 +1,129 @@
+# ---------------- Global ----------------
+paths:
+  raw: data/raw
+  processed: data/processed
+  runs: runs
+seeds: [42, 101, 202, 303, 404]
+tracking: {backend: none, project: tnk1}      # none | wandb | mlflow
+targets:
+  tnk1: Q13470
+  tnk2: Q07912
+  focus_kinases: {SRC: P12931, ABL1: P00519, LCK: P06239, PTK2: Q05397, EGFR: P00533, KDR: P35968, FLT3: P36888, JAK2: O60674, YES1: P07947}
+offtarget_panel: [Q07912, P12931, P00519, P06239, Q05397, P00533, P35968, P36888]  # TNK2,SRC,ABL1,LCK,PTK2,EGFR,KDR,FLT3
+
+# ---------------- Stage 1 ----------------
+data:
+  chembl_sqlite: data/raw/chembl_34.db
+  bindingdb_tsv: data/raw/BindingDB_All.tsv
+  pkis_csv: data/raw/pkis_long.csv              # columns: smiles,uniprot_id,value_nM,standard_type
+  kinomescan_csv: data/raw/kinomescan_long.csv  # Davis/Fabian/Karaman, same columns
+  dkk_csv: data/raw/dkk_tnk1_curated.csv        # manual TNK1 curation (TP-0903, dasatinib, bosutinib ...)
+  kinase_table: data/raw/kinases.csv            # uniprot_id,gene_name,domain_sequence,klifs_pocket_85
+  chembl_unlabelled_smiles: data/raw/chembl_drug_like.smi
+  standard_types: [IC50, Ki, Kd]
+  mw_range: [150, 900]
+  hac_range: [10, 65]
+  allowed_elements: [C, N, O, S, F, Cl, Br, I, P, B, H]
+  replicate_range_max: 1.0
+  replicate_policy: drop                        # drop | keep_median
+  censor_tau: 5.0
+splits:
+  seed: 42
+  tnk1_test_frac: 0.20
+  n_outer: 5
+  n_inner: 5
+
+# ---------------- Stage 3 ----------------
+model:
+  hidden: 300
+  depth: 3
+  dropout: 0.2
+  n_desc: 200
+  kin_proj_dim: 128
+  esm_dim: 1280
+  klifs_dim: 425
+  fusion_hidden: [512, 256]
+  design: B                                     # A | B
+ssl_pretrain:
+  epochs: 20
+  batch_size: 256
+  lr: 1.0e-3
+  mask_frac: 0.15
+  num_workers: 8
+kinome_train:
+  epochs: 5
+  batch_size: 256
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  lambda_sim: 3.0                               # tuned on LOKO over {0,1,3,10}
+  lambda_grid: [0, 1, 3, 10]
+  cap_n: 2000
+  sim_klifs: 0.7
+  sim_esm: 0.3
+  huber_delta: 1.0
+  cens_weight: 0.5
+finetune:
+  phase1: {epochs: 15, lr_head: 3.0e-4}
+  phase2: {epochs: 45, lr_enc: 1.0e-5, lr_head: 1.0e-4, patience: 12}
+  alpha_enc: 1.0e-2
+  alpha_head: 1.0e-3
+  loss: nll                                     # nll (ensemble members) | huber
+  inhouse_weight: 3.0
+
+# ---------------- Stage 4 ----------------
+uq:
+  n_members: 10
+  independent_kinome_training: false            # see README: shared theta0 under-estimates epistemic variance -> false for practical deep ensemble fine-tuning
+  mc_dropout_T: 50
+  alpha: 0.10
+  ad_k: 5
+  ad_percentile: 95
+
+# ---------------- Stage 5 ----------------
+admet:
+  n_members: 5
+  endpoints:
+    solubility: {tdc: ["ADME", "Solubility_AqSolDB"], task: reg}
+    caco2: {tdc: ["ADME", "Caco2_Wang"], task: reg}
+    microsome: {tdc: ["ADME", "Clearance_Microsome_AZ"], task: reg}
+    cyp3a4: {tdc: ["ADME", "CYP3A4_Veith"], task: cls}
+    cyp2d6: {tdc: ["ADME", "CYP2D6_Veith"], task: cls}
+    herg: {tdc: ["Tox", "hERG_Karim"], task: cls}
+    ames: {tdc: ["Tox", "AMES"], task: cls}
+filters: {sa_max: 4.2, mw_max_hard: 600}
+
+# ---------------- Stage 6/7 ----------------
+rl:
+  steps: 1000
+  batch_size: 128
+  sigma: 120
+  lr: 1.0e-4
+  strategy: dap                                 # verify against your pinned REINVENT4 release (dap | mauli)
+  beta_explore: 0.3
+  beta_explore_steps: 300
+  beta_final: 1.5
+  gamma: 1.0
+  pot_c: 7.0
+  pot_k: 2.0
+  sel_c: 1.2
+  sel_k: 2.0
+  ad_scale: 0.15
+  weights: {pot: 3.0, sel: 2.0, ad: 1.5, sa: 1.0, adme: 1.0, safety: 1.5, qed: 0.5}
+  diversity: {bucket_size: 25, min_score: 0.55}
+  veto: null                                    # e.g. {safety: 0.05, sa: 0.05}; manual's formula alone does NOT give near-zero reward on a failed component
+
+# ---------------- Stage 8 ----------------
+al:
+  pool_size: 50000
+  pareto_keep: 1500
+  audit_tol: 1.0
+  retro_max_steps: 4
+  retro_min_state_score: 0.85
+  ei_xi: 0.05
+  ucb_kappa: 1.5
+  butina_dist: 0.40
+  max_per_cluster: 2
+  batch: {exploit: 16, explore: 12, novel: 8, control: 4}
+  exploit_lcb_k: 1.0
+  exploit_min_sel: 1.5
+  explore_min_mu: 6.3

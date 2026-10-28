@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.env
+
+# Large raw datasets, downloads, and caches (>15 GB)
+ml_research/tnk1_data/
+**/_work/
+*.sqlite
+*.sqlite3
+*.zip
+*.tar.gz
+*.tsv
+*.tab
+*.db
+
+# Large precomputed feature stores (>25 MB)
+ml_research/features/*.parquet
+ml_research/features/*.npz
+ml_research/features/*.csv
+!ml_research/features/README.md
+!ml_research/features/manifest.json
+!ml_research/features/*summary*.json
+!ml_research/features/*metadata*.json
+
+# Model weights & binary checkpoints
+*.pt
+*.pth
+*.pkl
+*.bin
+tnk1-pipeline/tnk1-pipeline/data/processed/
+!tnk1-pipeline/tnk1-pipeline/data/processed/prior/*.toml
+!tnk1-pipeline/tnk1-pipeline/data/raw/*.csv
+!tnk1-pipeline/tnk1-pipeline/data/raw/README.md
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini

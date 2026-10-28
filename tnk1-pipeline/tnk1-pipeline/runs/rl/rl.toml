@@ -1,0 +1,38 @@
+run_type = "staged_learning"
+use_cuda = true
+tb_logdir = "tb_rl"
+json_out_config = "_tnk1_rl.json"
+[parameters]
+summary_csv_prefix = "tnk1_rl"
+use_checkpoint = false
+purge_memories = false
+prior_file = "data\processed\prior\kinase.prior"
+agent_file = "data\processed\prior\kinase.prior"
+batch_size = 128
+uniquify_smiles = true
+randomize_smiles = true
+[learning_strategy]
+type = "dap"
+sigma = 120
+rate = 0.0001
+[diversity_filter]
+type = "IdenticalMurckoScaffold"
+bucket_size = 25
+minscore = 0.55
+minsimilarity = 0.4
+penalty_multiplier = 0.5
+[[stage]]
+chkpt_file = "tnk1_rl.chkpt"
+termination = "simple"
+max_score = 1.1          # unreachable -> run exactly `steps` steps
+min_steps = 1000
+max_steps = 1000
+[stage.scoring]
+type = "geometric_mean"
+[[stage.scoring.component]]
+[stage.scoring.component.ExternalProcess]
+[[stage.scoring.component.ExternalProcess.endpoint]]
+name = "TNK1 LCB multi-objective reward"
+weight = 1
+params.executable = "python"
+params.args = "D:\ML_Research\ml_research\tnk1-pipeline\tnk1-pipeline\tnk1\rl\reinvent_client.py --url http://127.0.0.1:8765"

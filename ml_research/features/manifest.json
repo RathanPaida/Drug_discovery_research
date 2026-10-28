@@ -1,0 +1,50 @@
+{
+  "tnk1_curated.parquet": {
+    "size_bytes": 57748,
+    "sha256": "e1de4cb2445d1f478bb33114b71d6fe94105a1923ed31fe1e8c232b0332c24ec"
+  },
+  "tnk1_nested_scaffold_splits_5x5.json": {
+    "size_bytes": 823537,
+    "sha256": "7ed825f357dbc9d69ac91aac843984bde6862ce8864c587fbb97fc835781bf6b"
+  },
+  "tnk1_baseline_features_2248d.npz": {
+    "size_bytes": 694200,
+    "sha256": "275663144ac36479f21bcb0fd563e4d87ecd775f4ad17fd67f83bbf0a5e6dec7"
+  },
+  "tnk1_graph_dmpnn.pkl": {
+    "size_bytes": 8728153,
+    "sha256": "65aaed21449ce8e6456e292a1e883144a075e9c4cb5e8bc31fc6337c87451913"
+  },
+  "kinome_similarity_scores.parquet": {
+    "size_bytes": 65167,
+    "sha256": "3b1aef654bbb0b763c215b493f450e469e94b9ee0c5b6b02fcc80b80080852b7"
+  },
+  "offtargets_curated.parquet": {
+    "size_bytes": 4279804,
+    "sha256": "54d441ffa41f589b22f42ba0672934a0def09f318bbf947f3605e1530c9bc254"
+  },
+  "admet_7endpoints.parquet": {
+    "size_bytes": 2593938,
+    "sha256": "5008dea536b424baa7c01a50d3db486314aec9b0d51d2d743fc7f36bb9350a41"
+  },
+  "kinome_multitask_300k.parquet": {
+    "size_bytes": 14941444,
+    "sha256": "55fa58097c2bca58612f62055c1682f3cd9307478a64f4b8aa80229346189610"
+  },
+  "kinome_all_measurements_3.95M.parquet": {
+    "size_bytes": 194531832,
+    "sha256": "16619257e8d7bf4774d2ee59f227323b7f5a7eff3c7a9bf4cde87ddda37549c7"
+  },
+  "unique_molecules_788k.parquet": {
+    "size_bytes": 64355689,
+    "sha256": "9391e01b8e713157ade34b7218fba28e6d2f2ce8024149a2d4fa0d7aabb13dfd"
+  },
+  "unique_molecules_fingerprints_2048bit.npz": {
+    "size_bytes": 44648451,
+    "sha256": "cb71026e1ee7dba45b2c8c13ba267b85139154bb75f4cf4e3b2dd568d9da7e3a"
+  },
+  "unique_molecules_descriptors_200d.npz": {
+    "size_bytes": 248156073,
+    "sha256": "2f61735fe3cf24e4d48c3e2d9449165c048a6656d2e34257b0a57a66c6eb641b"
+  }
+}

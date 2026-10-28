@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/processed/
+data/raw/*
+!data/raw/README.md
+*.pt
+*.pkl

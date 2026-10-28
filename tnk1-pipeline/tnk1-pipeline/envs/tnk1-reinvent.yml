@@ -1,0 +1,9 @@
+name: tnk1-reinvent
+channels: [conda-forge, defaults]
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # Pin to the exact REINVENT 4 release you validate against, e.g.
+      # git+https://github.com/MolecularAI/REINVENT4@<commit-or-tag>
+      - reinvent4
