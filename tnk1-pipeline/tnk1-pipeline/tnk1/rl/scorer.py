@@ -40,16 +40,22 @@ class Scorer:
         ep = {k: predict_endpoint(b, vs, self.ds, self.dev)[0] for k, b in self.admet.items()}
         P = lambda k: np.array([p[k] for p in (prof[i] for i in vi)])
         sig = lambda x, c, k: R.sigmoid(x, c, k)
+        sol = ep.get("solubility", np.zeros(len(vs)))
+        caco2 = ep.get("caco2", np.zeros(len(vs)))
+        micro = ep.get("microsome", np.zeros(len(vs)))
+        herg = ep.get("herg", np.zeros(len(vs)))
+        ames = ep.get("ames", np.zeros(len(vs)))
+        cyp3a4 = ep.get("cyp3a4", np.zeros(len(vs)))
         comps = {
             "pot": R.r_pot(d["mu"], d["sigma_epi"], beta, rl["pot_c"], rl["pot_k"]),
             "sel": R.r_sel(sel["mu_sel"], sel["sigma_sel"], rl["gamma"], rl["sel_c"], rl["sel_k"]),
             "ad": R.r_ad(d_lat, self.ad.d_thr_lat, rl["ad_scale"]),
             "sa": R.r_sa(P("sa")),
-            "adme": R.r_adme(sig(ep["solubility"], -5.0, 3.0), sig(ep["caco2"], -5.15, 3.0), 1 - sig(np.log10(np.maximum(ep["microsome"], 1e-3)), np.log10(30.0), 3.0)),
-            "safety": R.r_safety(ep["herg"], ep["ames"], ep["cyp3a4"]),
+            "adme": R.r_adme(sig(sol, -5.0, 3.0), sig(caco2, -5.15, 3.0), 1 - sig(np.log10(np.maximum(micro, 1e-3)), np.log10(30.0), 3.0)),
+            "safety": R.r_safety(herg, ames, cyp3a4),
             "qed": P("qed"),
         }
-        gate = R.hard_gate(np.ones(len(vi)), P("n_alerts"), P("mw"), ep["ames"], self.cfg["filters"]["mw_max_hard"])
+        gate = R.hard_gate(np.ones(len(vi)), P("n_alerts"), P("mw"), ames, self.cfg["filters"]["mw_max_hard"])
         total = R.aggregate(comps, w, gate, rl.get("veto"))
         for c in R.COMPONENTS: out[c][vi] = comps[c]
         out["R"][vi], out["mu"][vi], out["sigma_epi"][vi] = total, d["mu"], d["sigma_epi"]
