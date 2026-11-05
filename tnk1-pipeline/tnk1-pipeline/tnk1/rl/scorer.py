@@ -55,7 +55,15 @@ class Scorer:
             "safety": R.r_safety(herg, ames, cyp3a4),
             "qed": P("qed"),
         }
-        gate = R.hard_gate(np.ones(len(vi)), P("n_alerts"), P("mw"), ames, self.cfg["filters"]["mw_max_hard"])
+        gate = R.hard_gate(
+            np.ones(len(vi)),
+            P("n_alerts"),
+            P("mw"),
+            ames,
+            self.cfg["filters"]["mw_max_hard"],
+            p_herg=herg,
+            p_herg_max=self.cfg["filters"].get("herg_max", 0.85),
+        )
         total = R.aggregate(comps, w, gate, rl.get("veto"))
         for c in R.COMPONENTS: out[c][vi] = comps[c]
         out["R"][vi], out["mu"][vi], out["sigma_epi"][vi] = total, d["mu"], d["sigma_epi"]

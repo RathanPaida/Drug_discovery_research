@@ -19,7 +19,12 @@ class ADMETNet(nn.Module):
 def load_tdc(group, name, seed=42):
     from pathlib import Path
     import pandas as pd
-    local_p = Path("d:/ML_Research/ml_research/ml_research/features/admet_7endpoints.parquet")
+    candidates = [
+        Path(__file__).resolve().parents[3] / "ml_research" / "features" / "admet_7endpoints.parquet",
+        Path("ml_research/features/admet_7endpoints.parquet"),
+        Path("d:/ML_Research/ml_research/ml_research/features/admet_7endpoints.parquet"),
+    ]
+    local_p = next((p for p in candidates if p.exists()), Path("admet_7endpoints.parquet"))
     if local_p.exists():
         tdc_col_map = {
             "Solubility_AqSolDB": "aqsol_logS",
@@ -71,14 +76,27 @@ def train_endpoint(cfg, endpoint, desc_scaler, device="cuda", seeds=(0, 1, 2, 3,
 
 
 @torch.no_grad()
-def predict_endpoint(bundle, smiles, desc_scaler, device="cuda"):
+def predict_endpoint(bundle, smiles, desc_scaler, device="cuda", chunk_size=512):
     from ..baselines.features import rdkit_descriptors
-    b = to_torch(collate_graphs([mol_to_graph(s) for s in smiles]), device)
-    d = torch.tensor(desc_scaler.transform(rdkit_descriptors(smiles)), device=device)
-    outs = np.stack([m(b, d).cpu().numpy() for m in bundle["members"]])
-    if bundle["task"] == "cls": outs = 1 / (1 + np.exp(-outs))
-    else: outs = outs * bundle["sd"] + bundle["mu"]
-    return outs.mean(0), outs.std(0)
+    if len(smiles) <= chunk_size:
+        b = to_torch(collate_graphs([mol_to_graph(s) for s in smiles]), device)
+        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(smiles)), device=device)
+        outs = np.stack([m(b, d).cpu().numpy() for m in bundle["members"]])
+        if bundle["task"] == "cls": outs = 1 / (1 + np.exp(-outs))
+        else: outs = outs * bundle["sd"] + bundle["mu"]
+        return outs.mean(0), outs.std(0)
+    
+    means, stds = [], []
+    for i in range(0, len(smiles), chunk_size):
+        chunk = smiles[i:i + chunk_size]
+        b = to_torch(collate_graphs([mol_to_graph(s) for s in chunk]), device)
+        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(chunk)), device=device)
+        outs = np.stack([m(b, d).cpu().numpy() for m in bundle["members"]])
+        if bundle["task"] == "cls": outs = 1 / (1 + np.exp(-outs))
+        else: outs = outs * bundle["sd"] + bundle["mu"]
+        means.append(outs.mean(0))
+        stds.append(outs.std(0))
+    return np.concatenate(means), np.concatenate(stds)
 
 
 def tpp_pass(endpoint, value) -> bool:

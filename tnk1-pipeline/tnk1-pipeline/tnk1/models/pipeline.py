@@ -17,7 +17,7 @@ def _mk(df, kin_idx_map, desc_store, weights=None, tau=5.0):
         df = df[valid].reset_index(drop=True)
         if weights is not None:
             weights = weights[valid]
-    y = np.where(df.censored.values == 1, df.pact.values, df.pact.values)       # censored rows: pact = upper bound
+    y = np.where(df.censored.values == 1, np.where(np.isnan(df.pact.values), tau, df.pact.values), df.pact.values)       # censored rows: pact = upper bound (fallback tau)
     w = df.weight.values if weights is None else weights * df.weight.values
     return LabelledSet(df.smiles.values, df.uniprot_id.map(kin_idx_map).values, assay_index(df.standard_type.values),
                        y, df.censored.values, w, desc_store)

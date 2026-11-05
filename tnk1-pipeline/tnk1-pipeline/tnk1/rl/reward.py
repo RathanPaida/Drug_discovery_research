@@ -29,9 +29,17 @@ def r_safety(p_herg, p_ames, p_cyp3a4):
     return (1 - np.asarray(p_herg)) * (1 - np.asarray(p_ames)) * (1 - 0.5 * np.asarray(p_cyp3a4))
 
 
-def hard_gate(valid, n_alerts, mw, p_ames, mw_max=600.0):
-    return (np.asarray(valid, bool) & (np.asarray(n_alerts) == 0) & (np.asarray(mw) <= mw_max)
-            & (np.asarray(p_ames) <= 0.5)).astype(float)
+def r_novelty(inchikeys, known_inchikeys_set) -> np.ndarray:
+    """Strict cryptographic novelty verification gate: returns 1.0 if unseen, 0.0 if known."""
+    return np.array([0.0 if ik in known_inchikeys_set or (ik[:14] in known_inchikeys_set if ik else False) else 1.0 for ik in inchikeys], dtype=float)
+
+
+def hard_gate(valid, n_alerts, mw, p_ames, mw_max=600.0, p_herg=None, p_herg_max=0.85):
+    res = (np.asarray(valid, bool) & (np.asarray(n_alerts) == 0) & (np.asarray(mw) <= mw_max)
+           & (np.asarray(p_ames) <= 0.5))
+    if p_herg is not None:
+        res = res & (np.asarray(p_herg) <= p_herg_max)
+    return res.astype(float)
 
 
 def aggregate(comps: dict, weights: dict, gate, veto: dict | None = None) -> np.ndarray:

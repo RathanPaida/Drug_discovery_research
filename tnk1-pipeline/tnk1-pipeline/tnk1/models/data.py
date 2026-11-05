@@ -22,9 +22,20 @@ class DescStore:
     def __init__(self, scaler):
         self.scaler, self.cache = scaler, {}
         from pathlib import Path
-        p_npz = Path("d:/ML_Research/ml_research/ml_research/features/unique_molecules_descriptors_200d.npz")
-        p_parq = Path("d:/ML_Research/ml_research/ml_research/features/unique_molecules_788k.parquet")
-        if p_npz.exists() and p_parq.exists():
+        candidates = [
+            Path(__file__).resolve().parents[3] / "ml_research" / "features",
+            Path(__file__).resolve().parents[4] / "features",
+            Path("ml_research/features"),
+            Path("d:/ML_Research/ml_research/ml_research/features"),
+        ]
+        p_npz, p_parq = None, None
+        for c in candidates:
+            npz_candidate = c / "unique_molecules_descriptors_200d.npz"
+            parq_candidate = c / "unique_molecules_788k.parquet"
+            if npz_candidate.exists() and parq_candidate.exists():
+                p_npz, p_parq = npz_candidate, parq_candidate
+                break
+        if p_npz and p_parq and p_npz.exists() and p_parq.exists():
             try:
                 import pandas as pd
                 df_mol = pd.read_parquet(p_parq, columns=["canonical_smiles"])

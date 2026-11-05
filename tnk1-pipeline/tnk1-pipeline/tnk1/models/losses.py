@@ -48,5 +48,5 @@ def l2sp(model, ref_state, alpha_enc, alpha_head):
 
 
 def compute_finetune_loss(mu, logvar, y, cens, w, model, ref_state, cfg_ft, mode="nll", tau=5.0):
-    return task_loss(mu, logvar, y, cens, w, mode, tau=None, cens_weight=0.5) + l2sp(
+    return task_loss(mu, logvar, y, cens, w, mode, tau=tau, cens_weight=0.5) + l2sp(
         model, ref_state, cfg_ft["alpha_enc"], cfg_ft["alpha_head"])

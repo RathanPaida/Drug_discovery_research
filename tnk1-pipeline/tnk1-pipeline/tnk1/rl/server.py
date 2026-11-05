@@ -14,17 +14,35 @@ def serve(scorer, host="127.0.0.1", port=8765, log_path="runs/rl_scores.jsonl", 
         scorer.step = json.loads(Path(state_path).read_text()).get("step", 0)
 
     class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/health", "/healthz"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "healthy", "step": scorer.step, "target": scorer.tnk1}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
         def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            with lock:
-                res = scorer.score(body["smiles"])
-                Path(state_path).write_text(json.dumps({"step": scorer.step}))
-                with open(log_path, "a") as fh:
-                    fh.write(json.dumps({"step": scorer.step, "t": time.time(), "smiles": body["smiles"],
-                                         **{k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in res.items()}}) + "\n")
-            out = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in res.items()}; out["step"] = scorer.step
-            data = json.dumps(out).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length))
+                smiles_list = body.get("smiles", [])
+                with lock:
+                    res = scorer.score(smiles_list)
+                    Path(state_path).write_text(json.dumps({"step": scorer.step}))
+                    with open(log_path, "a") as fh:
+                        fh.write(json.dumps({"step": scorer.step, "t": time.time(), "smiles": smiles_list,
+                                             **{k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in res.items()}}) + "\n")
+                out = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in res.items()}; out["step"] = scorer.step
+                data = json.dumps(out).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
         def log_message(self, *a): pass
 
     print(f"scoring server on http://{host}:{port}")

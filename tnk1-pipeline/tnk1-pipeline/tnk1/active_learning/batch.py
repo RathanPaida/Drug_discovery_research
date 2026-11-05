@@ -23,7 +23,7 @@ def butina_clusters(fps_or_smiles, cutoff=0.40) -> np.ndarray:
     return ids
 
 
-def select_batch(pool: pd.DataFrame, n=None, max_per_cluster=2, known_scaffolds=(), seed=0) -> pd.DataFrame:
+def select_batch(pool: pd.DataFrame, n=None, max_per_cluster=2, known_scaffolds=(), seed=0, exploit_min_sel=1.5, explore_min_mu=6.3) -> pd.DataFrame:
     """pool columns: smiles, cluster, scaffold, mu, sigma_epi, mu_sel, ei, ucb, lcb, passes_filters (bool),
     rf_pred (optional, for control). Returns the batch with a `batch_slice` column.
     Slices are filled in order EXPLOIT -> EXPLORE -> DIVERSITY -> CONTROL, never reusing a molecule and never
@@ -46,12 +46,12 @@ def select_batch(pool: pd.DataFrame, n=None, max_per_cluster=2, known_scaffolds=
             chosen.append((idx, label)); got += 1
         return got
 
-    exploit_pool = pool[pool.mu_sel >= 1.5].sort_values("lcb", ascending=False)
+    exploit_pool = pool[pool.mu_sel >= exploit_min_sel].sort_values("lcb", ascending=False)
     if len(exploit_pool) < n["exploit"]:
         exploit_pool = pool.sort_values("lcb", ascending=False)
     take(exploit_pool, n["exploit"], "EXPLOIT")
 
-    explore_pool = pool[pool.mu >= 6.3].sort_values("ei", ascending=False)
+    explore_pool = pool[pool.mu >= explore_min_mu].sort_values("ei", ascending=False)
     if len(explore_pool) < n["explore"]:
         explore_pool = pool.sort_values("ei", ascending=False)
     take(explore_pool, n["explore"], "EXPLORE")
