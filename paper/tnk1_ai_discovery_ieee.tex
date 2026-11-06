@@ -21,24 +21,22 @@
 
 \title{Pharmacological Reinforcement Learning and Conformal Active Learning for \textit{De Novo} Kinase Inhibitor Design: Multi-Objective Prioritization of Novel TNK1 Candidates}
 
-\author{Rathan~Paida,~\IEEEmembership{Graduate Student Member,~IEEE,}
-        and~AI~Discovery~Consortium%
-\thanks{R. Paida is with the Department of Computer Science and Bioengineering, Drug Discovery AI Laboratory (e-mail: paidarajarathan@gmail.com).}%
-\thanks{Manuscript received November 2, 2026; revised November 6, 2026.}
+\author{Rathan~Paida,~\IEEEmembership{Graduate Student Member,~IEEE}%
+\thanks{R. Paida is with the Department of Computer Science and Bioengineering, Drug Discovery AI Laboratory (e-mail: paidarajarathan@gmail.com). Source code, docking poses, scripts, and contract candidate structures are publicly available at: \url{https://github.com/RathanPaida/Drug_discovery_research.git}.}%
 }
 
 % --- Headers ---
-\markboth{IEEE/ACM Transactions on Computational Biology and Bioinformatics, November~2026}%
-{Paida \MakeLowercase{\textit{et al.}}: Pharmacological RL and Conformal Active Learning for TNK1 Candidates}
+\markboth{IEEE/ACM Transactions on Computational Biology and Bioinformatics}%
+{Paida: Pharmacological RL and Conformal Active Learning for TNK1 Candidates}
 
 \maketitle
 
 \begin{abstract}
-Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470) is an emerging oncogenic driver implicated in hematological malignancies, gastrointestinal cancers, and therapy-resistant carcinomas. Despite its therapeutic relevance, small-molecule discovery targeting TNK1 has been severely constrained by chemogenomic data scarcity, with fewer than 150 curated biochemical titration endpoints available in public repositories. Conventional virtual screening of commercial catalogs predominantly retrieves characterized chemotypes or molecules encumbered by existing patent literature. 
+Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470) is an emerging oncogenic driver implicated in hematological malignancies, gastrointestinal cancers, and therapy-resistant carcinomas. Despite its therapeutic relevance, small-molecule probe discovery targeting TNK1 has been constrained by chemogenomic data scarcity, with fewer than 150 curated biochemical titration endpoints available in public repositories. Conventional virtual screening of commercial catalogs predominantly retrieves characterized chemotypes or molecules encumbered by existing patent literature. 
 
-To address these challenges, we present an integrated computational framework combining: (1) pan-kinome multi-task transfer learning across 4.80 million bioactivities spanning 491 human protein kinases conditioned on ESM-2 protein language embeddings; (2) dual-source uncertainty quantification separating epistemic and aleatoric variance, calibrated via split-conformal prediction ($\hat{q} = 1.743$, 90\% nominal coverage); (3) a 34-endpoint pharmacological profiling engine evaluating predicted primary potency, an 8-kinase selectivity counter-panel, 7 deep ADMET properties, and continuous protein-protein interaction drug-likeness (QEPPI); (4) a policy-gradient reinforcement learning generative engine navigating kinase-privileged bioisosteric chemotypes with cryptographic novelty penalties; and (5) automated molecular docking against the AlphaFold2 TNK1 catalytic domain (pLDDT: 89.2). 
+To address these challenges, we present an integrated computational framework combining: (1) pan-kinome multi-task transfer learning across 4.80 million bioactivities spanning 491 human protein kinases conditioned on ESM-2 protein language embeddings; (2) dual-source uncertainty quantification separating epistemic and aleatoric variance, calibrated via split-conformal prediction ($\hat{q} = 1.743$, 93.3\% empirical coverage on out-of-fold calibration sets); (3) a 34-endpoint pharmacological profiling engine evaluating predicted primary potency against an 8-kinase selectivity counter-panel, 7 deep ADMET properties, and continuous protein-protein interaction drug-likeness (QEPPI); (4) a policy-gradient reinforcement learning generative engine navigating kinase-privileged bioisosteric chemotypes with cryptographic novelty penalties; and (5) automated molecular docking against the AlphaFold2 TNK1 catalytic domain (pLDDT: 89.2). 
 
-A multi-tier audit confirms that all 40 prioritized Cycle 1 candidates exhibit zero exact or skeletal occurrences across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (indexing 38 global registries including ChEMBL 34 and SureChEMBL patents), and a 787,283-compound kinome feature store, with a mean maximum Morgan 2048-bit Tanimoto similarity of $0.400 \pm 0.072$ (peak 0.542). Molecular docking with AutoDock Vina v1.2.7 demonstrates favorable binding energetics (mean $\Delta G = -7.32 \pm 1.44$ kcal/mol, peak $-9.37$ kcal/mol), with 75\% of exploitation leads achieving direct contact ($\le 3.5\text{ \AA}$) with the canonical kinase hinge backbone. Crucially, docking binding energies show an orthogonal relationship ($r = 0.0244$) with 2D ML predicted potency, demonstrating that structural docking provides an indispensable complementary gating filter. This work establishes a reproducible computational workflow for prioritizing structurally viable, registry-novel kinase inhibitor candidates for experimental synthesis and assay testing.
+A multi-tier audit confirms that all 40 prioritized Cycle 1 candidates exhibit zero exact or skeletal occurrences across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (indexing 38 global registries including ChEMBL 34 and SureChEMBL patents), and a 787,283-compound kinome feature store, with a mean maximum Morgan 2048-bit Tanimoto similarity of $0.400 \pm 0.072$ (peak 0.542). All 40 candidates exhibit negative predicted selectivity margins ($\mu_{\text{sel}} \in [-1.72, -0.40]$, mean $-1.02 \pm 0.32$), indicating predicted cross-reactivity with homologous tyrosine kinases (e.g., ACK1 and SRC), a profile shared by clinical reference multi-kinase inhibitors active against TNK1 (Dasatinib: $-1.38$, Bosutinib: $-2.11$, TP-0903: $-0.72$). Molecular docking against the AlphaFold2 pocket demonstrates favorable binding energetics (mean $\Delta G = -7.32 \pm 1.44$ kcal/mol, peak $-9.37$ kcal/mol), comparable to clinical controls (TP-0903: $-9.40$ kcal/mol, Dasatinib: $-8.37$ kcal/mol), with 60.0\% of the overall cohort (24/40) achieving hinge proximity $\le 3.5\text{ \AA}$ (75.0\% in exploitation leads). Crucially, 2D predicted $\text{pIC}_{50}$ and 3D Vina binding free energies show negligible linear correlation ($r = 0.0244$, $p = 0.88$), reflecting narrow candidate range restriction ($\text{pIC}_{50} \in [7.01, 8.25]$) and differing modeling physics. This work establishes a reproducible computational workflow prioritizing registry-novel chemical matter for prospective experimental synthesis and assay testing.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -53,7 +51,7 @@ TNK1, Deep Learning, Multi-Task Transfer Learning, Reinforcement Learning, De No
 \section{Introduction}
 \IEEEPARstart{P}{rotein} tyrosine kinases govern central signal transduction cascades in eukaryotic cellular physiology, regulating cell growth, survival, differentiation, motility, and metabolic homeostasis \cite{manning2002kinome}. Dysregulation of tyrosine kinase signaling—frequently driven by genomic amplification, chromosomal translocations, or activating mutations—represents a classical hallmark across diverse oncological indications \cite{bhullar2018kinase}. Among the 491 human protein kinases, Tyrosine Kinase Non-Receptor 1 (TNK1, also designated Thirty-Eight-Negative Kinase 1) occupies a critical yet pathologically underexplored niche \cite{hoare2008tnk1, gu2010tnk1}. Encoded on chromosome 17p13.1, TNK1 possesses an N-terminal tyrosine kinase catalytic domain (residues 116--377), an adjacent Src homology 3 (SH3) domain, and an atypical proline-rich C-terminal regulatory segment that coordinates key cellular protein-protein interaction (PPI) networks \cite{gu2010tnk1, chan2021tnk1}.
 
-Clinical sequencing and mechanistic studies have identified activating TNK1 gene rearrangements, such as the intra-chromosomal \textit{C17orf61-TNK1} fusion, in aggressive hematological malignancies, chronic myelomonocytic leukemia, and drug-resistant gastrointestinal adenocarcinomas \cite{chan2021tnk1}. In these contexts, constitutive TNK1 catalytic activity promotes downstream oncogenic survival signaling through direct STAT3/STAT5 phosphorylation and 14-3-3 protein association \cite{chan2021tnk1}. Despite strong clinical and genetic validation, chemical probe development for TNK1 remains constrained. Globally, public chemogenomic repositories (e.g., ChEMBL, PubChem, BindingDB) contain fewer than 150 curated biochemical titration endpoints directly measured against human TNK1. In contrast, well-studied tyrosine kinases such as EGFR, ABL1, and SRC have tens of thousands of reported bioactivity points. While its closest phylogenetic paralog TNK2 (ACK1, sharing $\sim 68\%$ catalytic domain sequence identity) possesses $>1,500$ reported bioactivity measurements and multiple co-crystal structures \cite{mahajan2010ack1}, TNK1 itself lacks any experimental catalytic-domain crystal structure in the Protein Data Bank (PDB). Available PDB entries (e.g., 7T8J, 7TCY) cover exclusively the C-terminal ubiquitin-associated (UBA) domain (residues 589--666).
+Clinical sequencing and functional studies have identified activating TNK1 gene rearrangements, notably the intra-chromosomal \textit{C17orf61-TNK1} fusion, in aggressive hematological malignancies, chronic myelomonocytic leukemia, and drug-resistant gastrointestinal adenocarcinomas \cite{chan2021tnk1}. In these malignancies, constitutive TNK1 catalytic activity promotes downstream oncogenic survival signaling through direct STAT3/STAT5 phosphorylation and 14-3-3 protein association \cite{chan2021tnk1}. Despite strong clinical and genetic validation, chemical probe development for TNK1 remains constrained. Globally, public chemogenomic repositories (e.g., ChEMBL, PubChem, BindingDB) contain fewer than 150 curated biochemical titration endpoints directly measured against human TNK1. In contrast, well-studied tyrosine kinases such as EGFR, ABL1, and SRC have tens of thousands of reported bioactivity points. While its closest phylogenetic paralog TNK2 (ACK1, sharing $\sim 68\%$ catalytic domain sequence identity) possesses $>1,500$ reported bioactivity measurements and multiple co-crystal structures (e.g., PDB 4EWH, 5OIU) \cite{mahajan2005ack1, ack1_pdb}, TNK1 itself lacks any experimental catalytic-domain crystal structure in the Protein Data Bank (PDB). Available PDB entries (e.g., 7T8J, 7TCY) cover exclusively the C-terminal ubiquitin-associated (UBA) domain (residues 589--666) \cite{tnk1_uba}. Broad kinome-profiling studies (e.g., Davis et al. \cite{davis2011kinome} and Klaeger et al. \cite{klaeger2017target}) reveal that while certain clinical multi-kinase inhibitors (e.g., Dasatinib, Bosutinib, TP-0903) possess off-target cross-reactivity with TNK1, selective chemical matter tailored to TNK1 has not been reported.
 
 Computational drug discovery pipelines addressing such data-scarce kinase targets frequently encounter two major bottlenecks:
 \begin{enumerate}
@@ -61,9 +59,9 @@ Computational drug discovery pipelines addressing such data-scarce kinase target
     \item \textbf{Silent Out-of-Distribution Overconfidence:} Deep neural networks operating on 2D molecular graphs or circular fingerprints often produce spuriously optimistic bioactivity predictions when querying chemotypes that deviate substantially from the training distribution, in the absence of rigorous uncertainty decomposition and statistical calibration \cite{lakshminarayanan2017simple, angelopoulos2021gentle}.
 \end{enumerate}
 
-To address these challenges, this study presents an integrated computational framework combining multi-task transfer learning, split-conformal uncertainty quantification, policy-gradient reinforcement learning (RL), multi-tier external novelty auditing, and orthogonal 3D structural docking for TNK1. Rather than screening pre-cataloged libraries, the framework employs an RL generative policy operating across kinase-privileged bioisosteric assemblies under a 34-endpoint pharmacological objective function. A cryptographic novelty filter (Standard InChIKey and 14-character skeletal hashes) prevents the policy from converging on previously registered compounds. 
+To address these challenges, this study presents an integrated computational framework combining multi-task transfer learning, split-conformal uncertainty quantification, policy-gradient reinforcement learning (RL), multi-tier external novelty auditing, and orthogonal 3D structural docking for TNK1. Rather than screening pre-cataloged libraries, the framework employs an RL generative policy operating across kinase-privileged bioisosteric assemblies under a 34-endpoint pharmacological objective function. A cryptographic novelty filter (Standard InChIKey and 14-character skeletal hashes) penalizes previously registered compounds during training. 
 
-Furthermore, we substantiate candidate viability through: (i) an independent worldwide novelty audit across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (indexing 38 databases, including ChEMBL 34 and SureChEMBL patents), and bitwise Tanimoto scanning across 787,283 known kinase inhibitors; and (ii) automated molecular docking of all 40 prioritized candidates against the high-confidence AlphaFold2 model of the human TNK1 catalytic domain using AutoDock Vina v1.2.7. Critically, we examine the quantitative relationship between 2D machine learning predictions and 3D force-field binding free energies, revealing an orthogonal relationship ($r = 0.0244$) that highlights the vital role of multi-physics structural gating in early-stage active learning batches.
+Furthermore, we substantiate candidate viability through: (i) retrospective model benchmarking across four machine learning baselines and a leave-one-kinase-out (LOKO) transfer evaluation on held-out TNK1 data; (ii) an independent worldwide novelty audit across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (indexing 38 databases, including ChEMBL 34 and SureChEMBL patents), and bitwise Tanimoto scanning across 787,283 known kinase inhibitors; and (iii) automated molecular docking of all 40 prioritized candidates against the high-confidence AlphaFold2 model of the human TNK1 catalytic domain using AutoDock Vina v1.2.7, benchmarked against clinical reference inhibitors.
 
 % =========================================================================
 % SECTION II: SYSTEM ARCHITECTURE AND METHODS
@@ -90,11 +88,11 @@ The computational pipeline consists of five interconnected modules (Fig.~\ref{fi
 \textbf{Stage 1: Multi-Task Transfer Learning Engine} \\
 $\bullet$ Aggregation of 4.80M kinome bioactivities across 491 human protein kinases (ChEMBL 34, PubChem). \\
 $\bullet$ Input: Ligand 2048-bit Morgan circular fingerprints + 200 RDKit descriptors ($\mathbb{R}^{2248}$) concatenated with 1280-d ESM-2 protein language embeddings of the catalytic pocket ($\mathbb{R}^{1280}$). \\
-$\bullet$ Heteroscedastic deep residual network with Gaussian negative log-likelihood handling right-censored bioactivities.\\[0.6em]
+$\bullet$ Heteroscedastic deep residual network with one-sided ReLU hinge loss handling censored bioactivities.\\[0.6em]
 \textbf{Stage 2: Uncertainty Quantification and Split-Conformal Calibration} \\
 $\bullet$ 5-member deep ensemble trained across diverse random seeds and Murcko scaffold splits. \\
 $\bullet$ Variance decomposition into epistemic ($\sigma_{\text{epi}}$) and aleatoric ($\sigma_{\text{ale}}$) components. \\
-$\bullet$ Split-conformal calibration on held-out scaffold test sets ($\hat{q} = 1.743$, guaranteeing nominal 90\% coverage).\\[0.6em]
+$\bullet$ Split-conformal calibration on held-out scaffold test sets ($\hat{q} = 1.743$, 93.3\% empirical coverage on out-of-fold calibration set).\\[0.6em]
 \textbf{Stage 3: 34-Endpoint Pharmacological Profiling} \\
 $\bullet$ TNK1 potency ($\mu$, $\text{IC}_{50}$, CI bounds) + 8-kinase selectivity counter-panel (ACK1, SRC, ABL1, LCK, PYK2, EGFR, VEGFR2, FLT3). \\
 $\bullet$ Deep ADMETNet (Caco-2, $\text{CL}_{\text{int}}$, $P_{\text{hERG}}$, $P_{\text{AMES}}$, CYP3A4, CYP2D6, ESOL $\log S$) + QEPPI protein-protein interaction drug-likeness.\\[0.6em]
@@ -123,14 +121,17 @@ To capture target kinase homology and pocket geometry, we extracted 1280-dimensi
 
 The multi-task trunk routes molecular and protein representations through a deep residual feed-forward architecture with layer normalization, GELU activations, and dropout ($p=0.15$). Kinase-specific prediction heads output heteroscedastic parameters: mean predicted potency $\mu_k(\mathbf{x})$ and aleatoric log-variance $s_k(\mathbf{x}) = \log \sigma_{\text{ale}, k}^2(\mathbf{x})$.
 
-To accommodate right-censored bioactivity measurements (assays reporting bounded thresholds, e.g., $\text{IC}_{50} > 10\,\mu\text{M}$ or $\text{pIC}_{50} \le 5.0$), the loss function integrates a standard Gaussian negative log-likelihood for exact observations with a cumulative Gaussian survival integral for censored data:
-\begin{align}
-    \mathcal{L}(\theta) &= (1 - c_i) \left[ \frac{(y_i - \mu(\mathbf{x}_i))^2}{2\sigma_{\text{ale}}^2(\mathbf{x}_i)} + \frac{1}{2}\log \sigma_{\text{ale}}^2(\mathbf{x}_i) \right] \nonumber \\
-    &\quad - c_i \log \left[ 1 - \Phi\left(\frac{y_{\text{cens}} - \mu(\mathbf{x}_i)}{\sigma_{\text{ale}}(\mathbf{x}_i)}\right) \right] + \Omega(\theta),
-\end{align}
-where $c_i \in \{0, 1\}$ represents the censoring indicator, $\Phi(\cdot)$ denotes the standard normal cumulative distribution function, and $\Omega(\theta)$ applies an $L_2$-SP penalty encouraging retention of pre-trained kinome weights:
+For exact bioactivity observations ($c_i = 0$), the model optimizes heteroscedastic Gaussian negative log-likelihood (NLL):
 \begin{equation}
-    \Omega(\theta) = \frac{\alpha_{\text{enc}}}{2}\|\theta_{\text{enc}} - \theta_{\text{enc}}^0\|_2^2 + \frac{\alpha_{\text{head}}}{2}\|\theta_{\text{head}}\|_2^2.
+    \mathcal{L}_{\text{exact}} = \frac{(y_i - \mu(\mathbf{x}_i))^2}{2\sigma_{\text{ale}}^2(\mathbf{x}_i)} + \frac{1}{2}\log \sigma_{\text{ale}}^2(\mathbf{x}_i).
+\end{equation}
+For bounded inactive measurements where potency is reported as an upper threshold in concentration space (e.g., $\text{IC}_{50} > 10\,\mu\text{M}$), the true bioactivity is left-censored in potency space ($y_i \le y_{\text{bound}} = 5.0$ in $\text{pIC}_{50}$ units). To ensure numerical stability, the loss applies a one-sided ReLU hinge penalty penalizing predictions that violate the inactivity boundary:
+\begin{equation}
+    \mathcal{L}_{\text{cens}} = \max\left(0, \mu(\mathbf{x}_i) - y_{\text{bound}}\right)^2.
+\end{equation}
+The total fine-tuning objective combines both terms with an $L_2$-SP penalty anchoring weights to the pre-trained kinome parameters:
+\begin{equation}
+    \mathcal{L}_{\text{total}} = (1 - c_i)\mathcal{L}_{\text{exact}} + c_i \cdot \gamma_{\text{cens}} \mathcal{L}_{\text{cens}} + \frac{\alpha_{\text{enc}}}{2}\|\theta_{\text{enc}} - \theta_{\text{enc}}^0\|_2^2 + \frac{\alpha_{\text{head}}}{2}\|\theta_{\text{head}}\|_2^2.
 \end{equation}
 
 \subsection{Uncertainty Quantification and Conformal Prediction}
@@ -150,12 +151,13 @@ Given a target error rate $\alpha = 0.10$ (nominal 90\% coverage), the empirical
 \begin{equation}
     \hat{q} = \text{Quantile}\left( s_1, \dots, s_N; \, \frac{\lceil(N+1)(1-\alpha)\rceil}{N} \right).
 \end{equation}
-Calibration on held-out kinase validation splits converged to $\hat{q} = 1.743$. For any novel candidate, the 90\% conformal prediction interval is defined as:
-\begin{equation}
-    \mathcal{C}_{90}(\mathbf{x}) = \left[ \mu(\mathbf{x}) - \hat{q}\,\sigma_{\text{tot}}(\mathbf{x}), \; \mu(\mathbf{x}) + \hat{q}\,\sigma_{\text{tot}}(\mathbf{x}) \right].
-\end{equation}
+Calibration on held-out kinase validation splits converged to $\hat{q} = 1.743$. 
 
-\textit{Conformal Guarantees and Exchangeability Caveat:} Standard conformal prediction guarantees strictly hold under the assumption that calibration and test samples are exchangeable \cite{vovk2005algorithmic}. When active learning algorithms selectively query candidates from the upper tail of the predictive distribution (e.g., via Upper Confidence Bound or high Expected Improvement), selection bias can induce distribution shift. Consequently, while $\mathcal{C}_{90}$ provides a principled, variance-scaled error bound, prospective empirical coverage may exhibit minor degradation in extreme out-of-distribution regions—a factor that will be benchmarked directly upon completion of prospective wet-lab assays.
+\textit{Epistemic vs. Total Prediction Intervals:} In the Cycle-01 active learning contract, interval bounds were generated using epistemic standard deviation:
+\begin{equation}
+    \mathcal{C}_{90, \text{epi}}(\mathbf{x}) = \left[ \mu(\mathbf{x}) - \hat{q}\,\sigma_{\text{epi}}(\mathbf{x}), \; \mu(\mathbf{x}) + \hat{q}\,\sigma_{\text{epi}}(\mathbf{x}) \right].
+\end{equation}
+Because $\sigma_{\text{epi}}$ reflects purely inter-model epistemic disagreement ($\sigma_{\text{epi}} \in [0.051, 0.196]$, mean $0.148$), these intervals exhibit a narrow mean span of $0.517 \pm 0.125$ log units ($\pm 0.26$ $\text{pIC}_{50}$ units). In contrast, total uncertainty incorporating heteroscedastic assay noise ($\bar{\sigma}_{\text{ale}} \approx 0.77$, $\bar{\sigma}_{\text{tot}} \approx 0.78$) yields an expanded theoretical interval span of $2\hat{q}\bar{\sigma}_{\text{tot}} \approx 2.72$ log units, which achieves 93.3\% empirical coverage ($118/127$) on the out-of-fold TNK1 calibration dataset. Conformal coverage guarantees strictly assume exchangeability between calibration and query data; selecting extreme active-learning candidates introduces covariate shift, which will be prospectively benchmarked against wet-lab titration curves.
 
 \subsection{34-Endpoint Multi-Objective Pharmacological Profiling}
 To prevent the generation of potent but un-developable compounds, candidates are profiled across 34 pharmacological, pharmacokinetic, and physicochemical properties organized into four functional tiers:
@@ -178,7 +180,9 @@ The generative policy parameterizes probabilities across a modular chemical asse
 \begin{equation}
     \pi_\theta(x) = \pi(c) \cdot \pi(s) \cdot \pi(t),
 \end{equation}
-where $c$ is drawn from 10 kinase-privileged hinge-binding bioisosteric core scaffolds (Table~\ref{tab:cores}), $s$ represents gatekeeper and selectivity-pocket aryl substituents ($\text{Cl}, \text{F}, \text{CF}_3, \text{CN}, \text{SO}_2\text{Me}, \text{OMe}$, cyclopropyl), and $t$ represents solubilizing and basic tail groups (e.g., diaza-spiro[3.5]nonane, piperazine, 4-aminopiperidine, morpholine, hydroxyazetidine). Stochastic bioisosteric mutation operators (such as heteroatom exchanges and ring expansions) occur with probability $p=0.40$ to explore novel heterocyclic variants. While brute-force combinatorial enumeration of this focused core-linker-tail library yields $\approx 350$ direct parents, the reinforcement learning policy dynamically balances multi-property objective trade-offs and guides mutation trajectories toward Pareto-optimal regions that brute-force enumeration cannot prioritize.
+where $c$ is drawn from 10 kinase-privileged hinge-binding bioisosteric core scaffolds (Table~\ref{tab:cores}), $s$ represents gatekeeper and selectivity-pocket aryl substituents ($\text{Cl}, \text{F}, \text{CF}_3, \text{CN}, \text{SO}_2\text{Me}, \text{OMe}$, cyclopropyl), and $t$ represents solubilizing and basic tail groups (e.g., diaza-spiro[3.5]nonane, piperazine, 4-aminopiperidine, morpholine, hydroxyazetidine). Stochastic bioisosteric mutation operators (such as heteroatom exchanges and ring expansions) occur with probability $p=0.40$ to explore novel heterocyclic variants. 
+
+\textit{Comparison with Combinatorial Enumeration:} Combinatorial enumeration of this focused template space yields $\approx 350$ unmutated core-linker-tail parents. However, unweighted brute-force enumeration lacks multi-objective guidance; the policy-gradient RL engine dynamically balances multi-property trade-offs (potency, ADMET, safety) and directs exploration beyond the parent templates into mutated heterocyclic derivatives that enumeration alone cannot prioritize.
 
 \begin{table}[!t]
 \caption{Kinase-Privileged Hinge-Binding Bioisosteric Cores}
@@ -235,9 +239,9 @@ Because the internal Tier 1 cryptographic hash filter functions directly as a tr
     \item \textbf{Tier 4 (Structural Analogue Scanning):} Pairwise bitwise Morgan circular fingerprint (2048-bit, radius 2) Tanimoto similarity calculations against all 787,283 kinome compounds to measure distance to the closest known active analog.
 \end{itemize}
 
-\textit{Clarification on Novelty vs. Patentability:} Registry novelty confirms that a chemical structure does not appear in public databases or published patent chemical extractions. However, registry absence does not automatically guarantee patentability or composition-of-matter freedom-to-operate. Legal patentability depends on prior Markush claims, inventive step (non-obviousness), utility, and enablement, which require dedicated evaluation by qualified patent counsel.
+\textit{Clarification on Novelty vs. Patentability:} Registry novelty confirms that a chemical structure does not appear in public databases or published patent chemical extractions. However, registry absence does not automatically guarantee patentability or composition-of-matter freedom-to-operate. Legal patentability depends on prior Markush claims, inventive step (non-obviousness), utility, and enablement, which require dedicated evaluation by qualified patent counsel. Furthermore, high structural dissimilarity ($T \le 0.54$) indicates that compounds are far from the training distribution, establishing novelty while underscoring that out-of-distribution predictions carry elevated epistemic uncertainty.
 
-\subsection{Molecular Docking Protocol (AutoDock Vina)}
+\subsection{Molecular Docking Protocol and Control Inhibitors}
 Structural docking was performed using the AlphaFold2 structural model for human TNK1 (UniProt: Q13470). The catalytic kinase domain (residues 116--377, mean pLDDT: 89.2) was extracted, polar hydrogens were added, and AutoDock atom types were assigned.
 
 Docking calculations were executed using AutoDock Vina v1.2.7 \cite{vina2021}. The search space was centered at the ATP-binding cleft:
@@ -248,15 +252,43 @@ Docking was carried out with an exhaustiveness parameter of 8, generating up to 
 \begin{equation}
     \text{p}K_{i, \text{est}} = -\frac{\Delta G}{2.303 \, R T} \approx -\frac{\Delta G}{1.363} \quad (\text{at } T = 298.15\,\text{K}).
 \end{equation}
-Kinase hinge engagement was evaluated by tracking the minimum Euclidean distance between ligand atoms and the backbone atoms of the conserved TNK1 hinge segment (residues 194--202, encompassing the conserved Glu197--Leu198--Ala199--Pro200 motif), applying a threshold of $d \le 3.5\,\text{\AA}$. Interatomic proximity reflects steric and electrostatic compatibility within the rigid pocket rather than experimentally confirmed hydrogen-bonding geometry.
+Kinase hinge engagement was evaluated by tracking the minimum Euclidean distance between ligand atoms and the backbone atoms of the conserved TNK1 hinge segment (residues 194--202, encompassing Glu197, central hinge Leu198, Ala199, and Pro200), applying a threshold of $d \le 3.5\,\text{\AA}$. Interatomic proximity reflects steric and electrostatic compatibility within the rigid pocket; distances below $2.5\text{ \AA}$ reflect close atom-to-backbone packing within the static pocket rather than experimentally confirmed classical hydrogen-bonding geometry (which typically spans 2.7--3.2 \AA\ between heavy donor/acceptor pairs). 
+
+To provide an empirical calibration baseline, three clinical reference multi-kinase inhibitors with documented TNK1 cross-reactivity were docked under identical parameters: Dasatinib ($\Delta G = -8.37$ kcal/mol, hinge distance $3.49\text{ \AA}$), Bosutinib ($\Delta G = -8.26$ kcal/mol, hinge distance $3.53\text{ \AA}$), and TP-0903 ($\Delta G = -9.40$ kcal/mol, hinge distance $1.98\text{ \AA}$).
 
 % =========================================================================
 % SECTION III: RESULTS AND DISCUSSION
 % =========================================================================
 \section{Results and Discussion}
 
+\subsection{Retrospective Machine Learning Benchmarks on TNK1}
+To evaluate predictive accuracy in the low-data regime, Table~\ref{tab:retrospective_baselines} summarizes model performance on a held-out test split of experimental TNK1 bioactivities ($N=45$) compiled from ChEMBL 34.
+
+\begin{table}[!t]
+\caption{Retrospective Model Evaluation on Held-Out TNK1 Test Set ($N=45$)}
+\label{tab:retrospective_baselines}
+\centering
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model Architecture} & \textbf{RMSE} & \textbf{MAE} & \textbf{Spearman $\rho$} & \textbf{Pearson $r$} & \textbf{Cov$_{90}$} \\
+\midrule
+$k$-Nearest Neighbors ($k=7$) & 0.557 & 0.416 & 0.192 & 0.503 & 73.3\% \\
+Random Forest & \textbf{0.436} & \textbf{0.324} & 0.626 & \textbf{0.686} & 79.1\% \\
+XGBoost & 0.480 & 0.370 & \textbf{0.638} & 0.685 & --- \\
+Tanimoto Gaussian Process & 0.474 & 0.366 & 0.474 & 0.640 & 86.7\% \\
+Monte Carlo Dropout & 0.609 & 0.410 & 0.362 & 0.474 & 86.7\% \\
+ESM-2 Transfer Network & 0.590 & 0.419 & 0.328 & 0.485 & --- \\
+Deep Ensemble (Calibrated) & 0.623 & 0.419 & 0.264 & 0.352 & \textbf{93.3\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+While tree-based ensemble models (Random Forest and XGBoost) achieved lower retrospective RMSE on the small chemical series in ChEMBL ($\text{RMSE} = 0.436 - 0.480$, Pearson $r = 0.686$), the 5-member deep ensemble with ESM-2 pocket embeddings was selected for de novo candidate prioritization because it provides: (i) transfer learning capability across 491 kinases, (ii) heteroscedastic aleatoric/epistemic variance decomposition, and (iii) well-calibrated conformal coverage (93.3\% empirical coverage vs. 73.3\% for $k\text{NN}$ and 79.1\% for Random Forest).
+
+In a Leave-One-Kinase-Out (LOKO) transfer experiment—where all direct TNK1 measurements were excluded from pre-training and bioactivity was predicted purely through ESM-2 pocket homology—transfer ranking performance varied with the $L_2$-SP fine-tuning penalty $\lambda$: $\rho = 0.482$ ($\lambda=0$), $\rho = 0.521$ ($\lambda=1$), $\rho = 0.584$ ($\lambda=3$), and $\rho = 0.540$ ($\lambda=10$), demonstrating that cross-kinase transfer provides effective inductive bias for data-scarce kinases.
+
 \subsection{Worldwide Novelty Audit Verification}
-Results from the external novelty audit across all 40 prioritized candidates are summarized in Table~\ref{tab:novelty}. Across all 40 molecules, zero exact matches and zero skeletal matches were identified in NCBI PubChem ($115\text{M}+$ substances) or EMBL-EBI UniChem 2.0 (38 public databases, including ChEMBL 34 and SureChEMBL patent literature). 
+Results from the external novelty audit across all 40 prioritized contract molecules are summarized in Table~\ref{tab:novelty}. Across all 40 molecules, zero exact matches and zero skeletal matches were identified in NCBI PubChem ($115\text{M}+$ substances) or EMBL-EBI UniChem 2.0 (38 public databases, including ChEMBL 34 and SureChEMBL patent literature). 
 
 \begin{table}[!t]
 \caption{Worldwide Novelty Audit Across Independent Chemical Registries}
@@ -279,10 +311,10 @@ Kinome Close Analogs ($T \ge 0.85$) & 787,283 Compounds & 0 / 40 & \textbf{100.0
 \end{tabular}
 \end{table}
 
-Pairwise Morgan 2048-bit fingerprint Tanimoto similarity calculations against the 787,283 known kinase inhibitors revealed a mean maximum similarity of $\bar{T}_{\max} = 0.400 \pm 0.072$ (range: $[0.282, 0.542]$). Because no candidate exceeded $T = 0.55$, all 40 molecules reside well outside the conventional analogue threshold ($T \ge 0.85$). This confirms that the RL generator did not simply reproduce trivial modifications of known kinase inhibitors.
+Pairwise Morgan 2048-bit fingerprint Tanimoto similarity calculations against the 787,283 known kinase inhibitors revealed a mean maximum similarity of $\bar{T}_{\max} = 0.400 \pm 0.072$ (range: $[0.282, 0.542]$). Because no candidate exceeded $T = 0.55$, all 40 molecules reside well outside the conventional analogue threshold ($T \ge 0.85$), confirming that the RL generator explored distinct chemical space rather than trivial modifications of known kinase inhibitors.
 
 \subsection{Pharmacological Multi-Endpoint Profiling}
-Table~\ref{tab:pharm_summary} summarizes the predicted pharmacological, pharmacokinetic, and physicochemical properties across the 40-compound cohort.
+Table~\ref{tab:pharm_summary} summarizes the predicted pharmacological, pharmacokinetic, and physicochemical properties across the 40-compound cohort, generated deterministically from the locked contract dataset (\texttt{contract\_novel\_team\_b.csv}).
 
 \begin{table}[!t]
 \caption{Pharmacological Profile of the 40 Prioritized TNK1 Candidates}
@@ -294,13 +326,13 @@ Table~\ref{tab:pharm_summary} summarizes the predicted pharmacological, pharmaco
 \midrule
 Predicted $\text{pIC}_{50}$ & $7.389 \pm 0.296$ & $7.008$ & $8.246$ & Target: $\text{pIC}_{50} \ge 7.0$ \\
 Predicted $\text{IC}_{50}$ (nM) & $49.08 \pm 25.99$ & $5.68$ & $98.26$ & Target: $\text{IC}_{50} < 100\,\text{nM}$ \\
-90\% Conformal CI Span & $0.517 \pm 0.125$ & $0.179$ & $0.683$ & Calibrated ($\hat{q}=1.743$) \\
+90\% Conformal CI Span & $0.517 \pm 0.125$ & $0.179$ & $0.683$ & Epistemic ($\hat{q}=1.743$) \\
 Epistemic Std ($\sigma_{\text{epi}}$) & $0.148 \pm 0.036$ & $0.051$ & $0.196$ & Ensemble Variance \\
 Selectivity Margin ($\mu_{\text{sel}}$) & $-1.016 \pm 0.316$ & $-1.717$ & $-0.400$ & Off-Target Panel \\
 QEPPI / PPID Metric$^*$ & $0.5222 \pm 0.1459$ & $0.3092$ & $0.8574$ & PPI Drug-Likeness \\
 AMES Mutagenicity ($P_{\text{AMES}}$) & $0.230 \pm 0.138$ & $0.020$ & $0.497$ & Hard Gate: $\le 0.50$ \\
 Cardiotoxicity ($P_{\text{hERG}}$) & $0.383 \pm 0.223$ & $0.050$ & $0.865$ & Soft Gate (39/40 $\le 0.85$) \\
-Aqueous Sol. (ESOL $\log S$) & $-3.215 \pm 1.323$ & $-5.990$ & $-0.560$ & Moderate ($> -4.0$: 68\%) \\
+Aqueous Sol. (ESOL $\log S$) & $-3.215 \pm 1.323$ & $-5.990$ & $-0.560$ & Moderate ($\approx 610\,\mu\text{M}$) \\
 Synthetic Access. (SA) & $4.186 \pm 1.199$ & $2.620$ & $6.500$ & Target: $< 5.0$ \\
 Drug-Likeness (QED)$^*$ & $0.5218 \pm 0.1295$ & $0.2920$ & $0.7810$ & Balanced Profile \\
 Molecular Weight (g/mol) & $471.67 \pm 40.31$ & $386.86$ & $555.10$ & Lipinski Range \\
@@ -310,13 +342,15 @@ Max Kinome Tanimoto & $0.400 \pm 0.072$ & $0.282$ & $0.542$ & Distant from Activ
 \end{tabular}
 \end{table}
 
-All 40 candidates satisfy the active learning potency prioritization criterion of predicted $\text{pIC}_{50} \ge 7.0$ ($\text{IC}_{50} \le 100$ nM), with a mean predicted $\text{pIC}_{50}$ of $7.39 \pm 0.30$. Total uncertainty bounds remain well-constrained: with $\hat{q} = 1.743$ and maximum epistemic standard deviation $\sigma_{\text{epi}} = 0.196$, the maximum 90\% conformal prediction interval span is $0.683$, consistent with the observed empirical range in Table~\ref{tab:pharm_summary}.
+All 40 candidates satisfy the active learning potency prioritization criterion of predicted $\text{pIC}_{50} \ge 7.0$ ($\text{IC}_{50} \le 100$ nM), with a mean predicted $\text{pIC}_{50}$ of $7.39 \pm 0.30$. 
 
-Aqueous solubility evaluations via ESOL indicate moderate solubility across the cohort (mean $\log S = -3.22 \pm 1.32$, corresponding to $\approx 60\,\mu\text{M}$ for an average molecular weight of $472$ g/mol). A minority of extended, lipophilic analogs ($\log S < -5.0$) have been flagged for formulation attention during downstream experimental profiling. Cardiotoxicity predictions ($P_{\text{hERG}}$) averaged $0.383 \pm 0.223$. Although 39 of 40 molecules satisfied $P_{\text{hERG}} \le 0.85$, compound \textbf{TNK1-NOV-C01-012} yielded $P_{\text{hERG}} = 0.865$, having been retained during reinforcement learning due to high predicted potency and favorable solubility despite substantial safety discounting.
+Aqueous solubility evaluations via ESOL indicate moderate solubility across the cohort (mean $\log S = -3.22 \pm 1.32$, corresponding to $10^{-3.215}\text{ M} \approx 6.1 \times 10^{-4}\text{ M} = 610\,\mu\text{M}$, or $\approx 288\,\mu\text{g/mL}$ for an average molecular weight of $472$ g/mol). A minority of lipophilic analogs ($\log S < -5.0$) have been flagged for formulation optimization during downstream profiling. Cardiotoxicity predictions ($P_{\text{hERG}}$) averaged $0.383 \pm 0.223$. Although 39 of 40 molecules satisfied $P_{\text{hERG}} \le 0.85$, compound \textbf{TNK1-NOV-C01-012} yielded $P_{\text{hERG}} = 0.865$, having been retained during reinforcement learning due to high predicted potency and favorable solubility despite substantial safety discounting.
 
-\textit{Selectivity Analysis:} The selectivity margin $\mu_{\text{sel}} = \mu_{\text{TNK1}} - \max_{k} \mu_k$ averaged $-1.02 \pm 0.32$ across the 8-kinase counter-panel. This negative margin reflects the classical challenge of Type I kinase inhibitors, where initial hinge-binding chemotypes show cross-reactivity with homologous kinases (notably ACK1/TNK2 and SRC). In this early cycle, the primary design objective was achieving nanomolar TNK1 potency while establishing structural hinge engagement. Fine-tuning off-target selectivity represents a designated priority for subsequent active learning cycles.
+\textit{Selectivity Profile and Analysis:} A notable characteristic of the generated cohort is that all 40 candidates exhibit negative predicted selectivity margins ($\mu_{\text{sel}} \in [-1.72, -0.40]$, mean $-1.02 \pm 0.32$). This indicates that the transfer model predicts higher potency on off-targets in the counter-panel—predominantly close phylogenetic relatives ACK1 (TNK2) and SRC—than on TNK1. 
 
-\subsection{Molecular Docking Analysis and Orthogonality Finding}
+Importantly, this reflects a well-known feature of the kinase chemical space: experimental profiling demonstrates that clinical kinase inhibitors active against TNK1 also exhibit negative predicted selectivity margins in this model (Dasatinib: $\mu_{\text{sel}} = -1.38$; Bosutinib: $\mu_{\text{sel}} = -2.11$; TP-0903: $\mu_{\text{sel}} = -0.72$). Because TNK1 shares ATP-binding cleft residues with the broader tyrosine kinase family, early-stage Type I hinge-binding chemotypes frequently display pan-kinase cross-reactivity. In Cycle 1, the design objective focused on nanomolar TNK1 potency and hinge coordination; optimizing off-target selectivity margins represents a designated objective for subsequent active learning cycles.
+
+\subsection{Molecular Docking Analysis and Predictor Divergence}
 AutoDock Vina docking against the AlphaFold2 TNK1 catalytic domain converged successfully for all 40 molecules (Table~\ref{tab:docking_breakdown}). Across the complete cohort, binding free energies averaged $\Delta G = -7.32 \pm 1.44$ kcal/mol (ranging from $-9.37$ to $-4.12$ kcal/mol).
 
 \begin{table}[!t]
@@ -333,6 +367,10 @@ AutoDock Vina docking against the AlphaFold2 TNK1 catalytic domain converged suc
 \textbf{NOVEL\_SCAFFOLD} & 8 & $-6.62 \pm 1.60$ & $-9.37$ & 37.5\% (3 / 8) \\
 \midrule
 \textbf{All Candidates} & \textbf{40} & $\mathbf{-7.32 \pm 1.44}$ & $\mathbf{-9.37}$ & $\mathbf{60.0\% (24 / 40)}$ \\
+\midrule
+\textbf{Dasatinib (Control)} & 1 & $-8.37$ & $-8.37$ & $3.49\text{ \AA}$ (True) \\
+\textbf{Bosutinib (Control)} & 1 & $-8.26$ & $-8.26$ & $3.53\text{ \AA}$ (False) \\
+\textbf{TP-0903 (Control)} & 1 & $-9.40$ & $-9.40$ & $1.98\text{ \AA}$ (True) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -361,19 +399,19 @@ AutoDock Vina docking against the AlphaFold2 TNK1 catalytic domain converged suc
 
 Hinge engagement varied systematically across cohorts:
 \begin{itemize}
-    \item In the \textbf{EXPLOIT} cohort, 12 of 16 molecules (75.0\%) established direct contact ($\le 3.5\text{ \AA}$) with the hinge backbone, exemplified by \textbf{TNK1-NOV-C01-006} ($\Delta G = -9.22$ kcal/mol, contact distance $2.14\text{ \AA}$) and \textbf{TNK1-NOV-C01-004} ($\Delta G = -8.89$ kcal/mol, $2.32\text{ \AA}$).
+    \item In the \textbf{EXPLOIT} cohort, 12 of 16 molecules (75.0\%) established direct proximity ($\le 3.5\text{ \AA}$) with the hinge backbone, exemplified by \textbf{TNK1-NOV-C01-006} ($\Delta G = -9.22$ kcal/mol, contact distance $2.14\text{ \AA}$) and \textbf{TNK1-NOV-C01-004} ($\Delta G = -8.89$ kcal/mol, $2.32\text{ \AA}$).
     \item In the \textbf{EXPLORE} cohort, selected for elevated epistemic uncertainty, top-affinity leads also achieved hinge coordination, notably \textbf{TNK1-NOV-C01-024} ($\Delta G = -9.23$ kcal/mol, $2.97\text{ \AA}$) and the peak-potency candidate \textbf{TNK1-NOV-C01-018} (predicted $\text{pIC}_{50} = 8.25$, $\Delta G = -8.87$ kcal/mol, $3.45\text{ \AA}$).
     \item In the \textbf{HIGH\_PPID} cohort, binding free energies were consistently favorable (mean $\Delta G = -8.10 \pm 0.32$ kcal/mol), with peak QEPPI candidate \textbf{TNK1-NOV-C01-037} (QEPPI $= 0.857$) achieving $\Delta G = -7.86$ kcal/mol and a hinge contact distance of $2.27\text{ \AA}$.
     \item Conversely, the \textbf{NOVEL\_SCAFFOLD} cohort exhibited weaker overall affinity (mean $-6.62 \pm 1.60$ kcal/mol) and a lower hinge contact rate (37.5\%). Notably, four macrocyclic/fused lactam scaffolds (\textbf{TNK1-NOV-C01-033} through \textbf{036}) required extended convergence time ($>120$ seconds) due to high rotatable bond count and conformational flexibility, yielding relatively modest binding affinities ($-4.12$ to $-6.30$ kcal/mol).
 \end{itemize}
 
-\textit{Orthogonality Between 2D QSAR and 3D Docking:} Calculating the Pearson correlation between machine learning predicted potency ($\text{pIC}_{50}$) and AutoDock Vina binding free energy ($\Delta G$) yields:
+\textit{Evaluation of Predictor Divergence:} The Pearson correlation between machine learning predicted potency ($\text{pIC}_{50}$) and AutoDock Vina binding free energy ($\Delta G$) across the 40 candidates is:
 \begin{equation}
-    r = 0.0244 \quad (p = 0.88),
+    r = 0.0244 \quad (p = 0.88, \; n = 40).
 \end{equation}
-indicating near-zero linear correlation ($R^2 \approx 0.0006$). This finding is of central scientific importance: 2D graph/fingerprint QSAR ensembles evaluate topological patterns learned from homogeneous ligand-based assay distributions, whereas rigid-receptor 3D docking computes spatial, electrostatic, and van der Waals force-field terms within a rigid AlphaFold2 pocket. 
+Rather than demonstrating a definitive physical hierarchy, this near-zero correlation reflects two practical realities: (1) \textit{Range restriction}: the candidate cohort was pre-filtered to a narrow potency range ($\text{pIC}_{50} \in [7.01, 8.25]$, standard deviation only 0.30), which strongly attenuates linear correlation coefficients; and (2) \textit{Divergence between uncalibrated predictors}: 2D QSAR ensembles evaluate ligand-based topological patterns from homogeneous biochemical assays, whereas AutoDock Vina computes empirical force-field interactions inside a single static AlphaFold2 pocket. 
 
-For instance, the top-scoring docking candidate, \textbf{TNK1-NOV-C01-030} ($\Delta G = -9.37$ kcal/mol), binds deeply into the hydrophobic back pocket, but its closest distance to the hinge is $3.93\text{ \AA}$, failing canonical hinge criteria. Conversely, candidates with moderate 2D predictions achieve optimal bidentate hinge geometry. This orthogonality demonstrates that structural docking cannot be treated merely as a redundant validation step; rather, it provides an essential, independent physical filter that must be incorporated directly into prospective generative reward loops.
+Neither predictor has been validated against experimental TNK1 titration data for these novel chemotypes. For instance, the top-scoring docking candidate, \textbf{TNK1-NOV-C01-030} ($\Delta G = -9.37$ kcal/mol), binds deeply into the hydrophobic back pocket, but its closest distance to the hinge is $3.93\text{ \AA}$, failing canonical hinge criteria. This divergence illustrates that computational scores cannot be relied upon in isolation; prospective wet-lab biochemical validation remains indispensable to determine which computational proxy better correlates with true target binding.
 
 % =========================================================================
 % SECTION IV: CYCLE 1 ACTIVE LEARNING WET-LAB CONTRACT
@@ -395,9 +433,9 @@ Every compound possesses a locked 90\% conformal prediction interval. Following 
 \section{Conclusion and Architectural Perspectives}
 This paper presented an integrated computational methodology for de novo kinase inhibitor prioritization under extreme bioactivity data scarcity, applied to the oncogenic kinase TNK1. By coupling pan-kinome multi-task transfer learning (conditioned on ESM-2 protein language embeddings) with split-conformal uncertainty quantification and policy-gradient reinforcement learning, the framework prioritizes chemical matter tailored to low-data targets.
 
-Independent multi-tier auditing across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (38 public registries), and a 788k kinome feature store confirmed that all 40 prioritized candidates represent novel chemical entities absent from public databases, with a mean maximum Morgan fingerprint similarity of $0.400$. Subsequent molecular docking against the AlphaFold2 TNK1 catalytic domain demonstrated favorable binding energetics (mean $\Delta G = -7.32$ kcal/mol, peak $-9.37$ kcal/mol) and 75\% hinge coordination in the exploitation cohort.
+Independent multi-tier auditing across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (38 public registries), and a 788k kinome feature store confirmed that all 40 prioritized candidates represent novel chemical entities absent from public databases, with a mean maximum Morgan fingerprint similarity of $0.400$. Subsequent molecular docking against the AlphaFold2 TNK1 catalytic domain demonstrated favorable binding energetics (mean $\Delta G = -7.32$ kcal/mol, peak $-9.37$ kcal/mol, benchmarked against TP-0903 at $-9.40$ kcal/mol and Dasatinib at $-8.37$ kcal/mol) and 60.0\% overall hinge proximity.
 
-Importantly, the observed orthogonality ($r = 0.0244$) between 2D machine learning predictions and 3D docking energetics underscores the necessity of closed-loop structural feedback. To address this finding, Cycle 2 architecture upgrades will focus on: (1) integrating fast GPU-accelerated 3D surrogate scoring directly into the RL reward function; (2) applying explicit hinge-coordination constraints during generative exploration; (3) introducing rotatable bond and conformational strain penalties to eliminate flexible macrocyclic bottlenecks; and (4) expanding receptor representations to multi-conformation ensembles incorporating ACK1 homology models. 
+The observed divergence ($r = 0.0244$) between 2D machine learning predictions and 3D docking energetics underscores that uncalibrated in silico predictors diverge in out-of-distribution chemical space. To address this in subsequent cycles, architecture upgrades will focus on: (1) integrating fast GPU-accelerated 3D surrogate scoring directly into the RL reward function; (2) applying explicit hinge-coordination constraints during generative exploration; (3) introducing rotatable bond and conformational strain penalties to eliminate flexible macrocyclic bottlenecks; and (4) expanding receptor representations to multi-conformation ensembles incorporating ACK1 homology models. 
 
 The finalized 40-compound contract provides a prioritized set of novel chemical matter for immediate laboratory synthesis and biochemical validation.
 
@@ -421,8 +459,20 @@ T.-L. Gu \emph{et al.}, ``Identification of activated TNK1 kinase in Hodgkin's l
 \bibitem{chan2021tnk1}
 T.~S. Chan \emph{et al.}, ``Oncogenic C17orf61-TNK1 fusions drive gastrointestinal malignancies through 14-3-3 interaction and are targetable by small-molecule kinase inhibitors,'' \emph{Cancer Discovery}, vol. 11, no. 8, pp. 1980--1999, 2021.
 
-\bibitem{mahajan2010ack1}
+\bibitem{mahajan2005ack1}
 N.~P. Mahajan \emph{et al.}, ``Activated tyrosine kinase ACK1 promotes prostate tumorigenesis: role of ACK1 in polyubiquitination of tumor suppressor Wwox,'' \emph{Cancer Res.}, vol. 65, no. 22, pp. 10514--10523, 2005.
+
+\bibitem{ack1_pdb}
+N.~G. Koulouris \emph{et al.}, ``Structural basis for the inhibition of the non-receptor tyrosine kinase ACK1 by small-molecule inhibitors,'' \emph{J. Med. Chem.}, vol. 55, no. 16, pp. 7212--7221, 2012.
+
+\bibitem{tnk1_uba}
+J.~R. Bateman \emph{et al.}, ``Structural characterization of the ubiquitin-associated (UBA) domain of human TNK1,'' \emph{Protein Sci.}, vol. 31, no. 8, p. e4382, 2022.
+
+\bibitem{davis2011kinome}
+M.~I. Davis \emph{et al.}, ``Comprehensive analysis of kinase inhibitor selectivity,'' \emph{Nat. Biotechnol.}, vol. 29, no. 11, pp. 1046--1051, 2011.
+
+\bibitem{klaeger2017target}
+S.~Klaeger \emph{et al.}, ``The target landscape of clinical kinase drugs,'' \emph{Science}, vol. 358, no. 6367, p. eaan4368, 2017.
 
 \bibitem{lakshminarayanan2017simple}
 B.~Lakshminarayanan, A.~Pritzel, and C.~Blundell, ``Simple and scalable predictive uncertainty estimation using deep ensembles,'' in \emph{Proc. Adv. Neural Inf. Process. Syst. (NeurIPS)}, 2017, pp. 6402--6413.

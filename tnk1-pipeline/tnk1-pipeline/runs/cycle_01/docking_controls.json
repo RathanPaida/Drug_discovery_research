@@ -1,0 +1,38 @@
+[
+  {
+    "compound_id": "CTRL_DASATINIB",
+    "batch_slice": "CONTROL",
+    "canonical_smiles": "Cc1nc(Nc2ncc(C(=O)Nc3c(C)cccc3Cl)s2)cc(N2CCN(CCO)CC2)n1",
+    "docking_success": true,
+    "docking_affinity_kcal_mol": -8.37,
+    "docking_pki_est": 6.14,
+    "docking_modes_count": 5,
+    "hinge_min_dist_A": 3.49,
+    "hinge_contact": true,
+    "error": null
+  },
+  {
+    "compound_id": "CTRL_BOSUTINIB",
+    "batch_slice": "CONTROL",
+    "canonical_smiles": "COc1cc(Nc2c(C#N)cnc3cc(OCCCN4CCN(C)CC4)c(OC)cc23)c(Cl)cc1Cl",
+    "docking_success": true,
+    "docking_affinity_kcal_mol": -8.26,
+    "docking_pki_est": 6.06,
+    "docking_modes_count": 5,
+    "hinge_min_dist_A": 3.53,
+    "hinge_contact": false,
+    "error": null
+  },
+  {
+    "compound_id": "CTRL_TP0903",
+    "batch_slice": "CONTROL",
+    "canonical_smiles": "CC1=CN(C2CCNCC2)C(=O)C2=C1NC1=NC(NC3=CC=C(OCCN4CCCC4)C=C3)=NC=C21",
+    "docking_success": true,
+    "docking_affinity_kcal_mol": -9.4,
+    "docking_pki_est": 6.9,
+    "docking_modes_count": 5,
+    "hinge_min_dist_A": 1.98,
+    "hinge_contact": true,
+    "error": null
+  }
+]
