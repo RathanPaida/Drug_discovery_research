@@ -1,127 +1,133 @@
-# TNK1 Closed-Loop AI Drug Discovery & Kinome Transfer Pipeline
+# TNK1 Kinase AI Drug Discovery Platform
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
-[![RDKit](https://img.shields.io/badge/RDKit-2026.09-brightgreen.svg)](https://www.rdkit.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
+[![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
+[![Tests](https://img.shields.io/badge/pytest-21%20passed-success.svg)](tests/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An uncertainty-aware, deep kinome transfer learning and reinforcement learning drug discovery pipeline targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
-
-The platform mines over **4.80 Million bioactivity assays** across 491 human protein kinases and an ultra-large feature store of **787,283 unique chemical structures** to discover nanomolar, selective TNK1 inhibitors with calibrated statistical error bounds.
+An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
 
 ---
 
-## 🔬 Key Research Deliverables
+## 📖 Complete Project Documentation
 
-- **Cycle 1 Wet-Lab Priority Batch (Top 40):** [`tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)
-  - 16 Exploitation leads (sub-50 nM predicted potency, $>30\times$ off-target selectivity)
-  - 12 Exploration compounds ($\sigma_{\text{epi}} \in [0.15, 0.28]$ for model learning)
+For the full, exhaustive technical report covering biological mechanisms, chemogenomic transfer learning, split-conformal prediction, worldwide chemical audits, AlphaFold2 docking campaigns, clinical controls, and Cycle-02 architecture plans, please see:
+
+👉 **[TNK1 Project Master Technical Document](TNK1_PROJECT_MASTER_DOCUMENT.md)**
+
+For the full IEEE/ACM TCBB research manuscript LaTeX source code, please see:
+
+👉 **[`paper/tnk1_ai_discovery_ieee.tex`](paper/tnk1_ai_discovery_ieee.tex)**
+
+---
+
+## 🔬 Key Project Deliverables
+
+- **Cycle 1 Wet-Lab Priority Contract (40 Novel Small Molecules):**
+  - Path: [`tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv)
+  - 16 Exploitation leads (sub-85 nM predicted potency, 75.0% hinge coordination)
+  - 12 Exploration compounds ($\sigma_{\text{epi}} \in [0.15, 0.20]$ for active learning entropy reduction)
   - 8 Novel Scaffold centroids (scaffold-hopping diversity)
-  - 4 Control compounds (Random Forest baseline statistical arm)
-  - Locked 90% Conformal Prediction intervals ($\hat{q} = 1.743$)
-- **Full Candidate Pool (12,000 Molecules):** [`tnk1-pipeline/tnk1-pipeline/runs/stage7_scored_candidates.csv`](tnk1-pipeline/tnk1-pipeline/runs/stage7_scored_candidates.csv)
-  - Scored across 7-component Multi-Objective LCB reward function ($R(x)$)
-  - Annotated with `predicted_pic50`, `pred_ic50_nm`, and `ppid_score` (Protein-Protein Interaction Disruptor / Inhibitor score via QEPPI)
-- **Comprehensive Documentation & Briefing:**
-  - [`PROFESSOR_UPDATE_BRIEFING.md`](PROFESSOR_UPDATE_BRIEFING.md): Concise executive update for laboratory PIs
-  - [`pipeline_results_summary.md`](pipeline_results_summary.md): Stage-by-stage benchmark results
-  - [`TNK1_Pipeline_Results_Report.pdf`](TNK1_Pipeline_Results_Report.pdf): Monochrome publication-grade performance report
+  - 4 High-PPID compounds (peak continuous QEPPI drug-likeness up to $0.857$)
+  - Locked 90% Conformal Prediction intervals ($\hat{q} = 1.743$, 93.3% empirical coverage)
+- **Worldwide Registry-Verified Novelty (0/40 matches):**
+  - **NCBI PubChem (115M+ substances):** 0 / 40 matches
+  - **EMBL-EBI UniChem 2.0 (38 databases including SureChEMBL patents):** 0 / 40 matches
+  - **Local Kinome Store (787,283 compounds):** 0 / 40 exact or skeletal matches
+  - Mean max Morgan 2048-bit Tanimoto similarity to known kinase inhibitors: $\bar{T}_{\max} = 0.400 \pm 0.072$ (peak: $0.542$, all $< 0.55$)
+- **AlphaFold2 Molecular Docking (AutoDock Vina v1.2.7):**
+  - Mean binding affinity $\Delta G = -7.32 \pm 1.44\text{ kcal/mol}$ (peak $-9.37\text{ kcal/mol}$)
+  - 60.0% overall hinge contact rate ($\le 3.5\text{ \AA}$), reaching **75.0% in EXPLOIT leads**
+  - Benchmarked against clinical controls on the identical pocket: **TP-0903** ($-9.40\text{ kcal/mol}$), **Dasatinib** ($-8.37\text{ kcal/mol}$), **Bosutinib** ($-8.26\text{ kcal/mol}$)
+  - Docked 3D poses: [`tnk1-pipeline/tnk1-pipeline/runs/cycle_01/docking_poses/`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/docking_poses/)
 
 ---
 
-## 🏛️ Pipeline Architecture
+## ⚙️ Platform Architecture
 
 ```mermaid
 graph TD
-    A["Stage 0: Deterministic Seed Lock (42, 101, 202, 303, 404)"] --> B["Stage 1: Ingestion & 5x5 Nested Scaffold Splits"]
-    B --> C["Stage 2: Single-Task Benchmarks (RF, GP, XGBoost)"]
-    C --> D["Stage 3: Kinome Transfer Learning & KLIFS Pocket Store"]
-    D --> E["Stage 4: 10-Member Calibrated Deep Ensembling & UQ"]
-    E --> F["Stage 5: Selectivity & ADMET Panel Models"]
-    F --> G["Stage 6: Autoregressive Kinase Generative Prior"]
-    G --> H["Stage 7: LCB Multi-Objective Reinforcement Learning"]
-    H --> I["Stage 8: Active Learning Batch Selection (40 Compounds)"]
+    A["Stage 1: Pan-Kinome Ingestion (4.80M Bioactivities, 491 Kinases)"] --> B["Stage 2: ESM-2 (650M) Pocket Embeddings + 2248-d Ligand Features"]
+    B --> C["Stage 3: Heteroscedastic Deep Residual Trunk (NLL + Censored Hinge)"]
+    C --> D["Stage 4: 5-Member Ensemble & Conformal Calibration (q_hat = 1.743)"]
+    D --> E["Stage 5: 34-Endpoint Profiler (Potency, Selectivity, ADMET, QEPPI)"]
+    E --> F["Stage 6: Policy-Gradient REINFORCE with Cryptographic Hash Gating"]
+    F --> G["Stage 7: Worldwide Novelty Audit (PubChem, UniChem, 788k Tanimoto)"]
+    G --> H["Stage 8: AlphaFold2 Molecular Docking (AutoDock Vina v1.2.7)"]
+    H --> I["Final Milestone: 40-Compound Wet-Lab Contract for Synthesis"]
 ```
 
 ---
 
-## 📊 Benchmark Summary
+## 📊 Retrospective Machine Learning Benchmarks on TNK1
 
-Evaluated on 5×5 nested Bemis-Murcko scaffold cross-validation (zero chemical leakage):
+Evaluated on held-out experimental TNK1 bioactivities from ChEMBL 34 ($N=45$):
 
-| Model Architecture | Input Features | Test RMSE | Spearman $\rho$ | 90% Coverage | ECE |
+| Model Architecture | Input Features | Test RMSE | Spearman $\rho$ | Pearson $r$ | 90% Empirical Coverage |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Random Forest Baseline** | 2248-dim (2048 Morgan + 200 2D) | 0.436 | 0.626 | 79.1% | 0.055 |
-| **Exact Tanimoto GP** | 2048-bit Morgan Count FP | 0.474 | 0.474 | 86.7% | 0.026 |
-| **Multi-Task D-MPNN Transfer** | ESM-2 + KLIFS Pocket Fusion | 0.590 | 0.328 | 81.5% | 0.048 |
-| **10-Member Deep Ensemble** | Transfer Fine-Tuned + Conformal | **0.412** | **0.674** | **93.3%** | **0.018** |
+| **$k$-Nearest Neighbors ($k=7$)** | 2048 Morgan + 200 RDKit | 0.557 | 0.192 | 0.503 | 73.3% |
+| **Random Forest Baseline** | 2048 Morgan + 200 RDKit | **0.436** | 0.626 | **0.686** | 79.1% |
+| **XGBoost Regressor** | 2048 Morgan + 200 RDKit | 0.480 | **0.638** | 0.685 | --- |
+| **Tanimoto Gaussian Process** | 2048-bit Morgan Count FP | 0.474 | 0.474 | 0.640 | 86.7% |
+| **Monte Carlo Dropout** | Multi-Task Transfer MLP | 0.609 | 0.362 | 0.474 | 86.7% |
+| **ESM-2 Multi-Task Transfer** | ESM-2 Pocket + Morgan FP | 0.590 | 0.328 | 0.485 | --- |
+| **Deep Ensemble (Calibrated)** | Transfer Trunk + Conformal | 0.623 | 0.264 | 0.352 | **93.3%** |
 
 ---
 
-## 🧪 Top 5 Exploitation Leads for Synthesis
+## 🧪 Top Lead Candidates in Final Contract
 
-| Compound ID | InChIKey | Pred $\text{pIC}_{50}$ | Pred $\text{IC}_{50}$ | PPID Score | 90% Conformal CI | Pred Fold Selectivity | Chemotype |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **TNK1-C01-001** | `DBTLGWQFPVIXTJ` | **8.26** | **5.5 nM** | **0.825** | $[7.09, 9.42]$ | $>30\times$ vs off-targets | 2-aminopyrimidine hinge binder |
-| **TNK1-C01-002** | `JWTVAKXJTWBBHW` | **8.30** | **5.0 nM** | **0.619** | $[6.85, 9.75]$ | $>40\times$ vs off-targets | Pyrazolo[3,4-d]pyrimidine |
-| **TNK1-C01-003** | `DOZPDLPJZIRZNS` | **8.27** | **5.4 nM** | **0.697** | $[6.74, 9.79]$ | $>35\times$ vs off-targets | Bridged pyrrolopyrimidine |
-| **TNK1-C01-004** | `VUJKDEGULOJDBZ` | **8.20** | **6.2 nM** | **0.513** | $[6.78, 9.63]$ | $>30\times$ vs off-targets | Morpholine pyrazolopyrimidine |
-| **TNK1-C01-005** | `QUROXPAMRXBCFB` | **8.15** | **7.1 nM** | **0.602** | $[6.60, 9.71]$ | $>25\times$ vs off-targets | Imidazopyridine with spiro tail |
-
----
-
-## 📂 Repository Organization
-
-```text
-├── PROFESSOR_UPDATE_BRIEFING.md           # Executive briefing for laboratory PI
-├── pipeline_results_summary.md            # Benchmark report and verification tables
-├── TNK1_Pipeline_Results_Report.pdf       # Publication report
-├── scripts/
-│   ├── add_ppid_and_pic50_scores.py       # PPID & pIC50 computation pipeline
-│   └── generate_pipeline_report_pdf.py    # Report generator script
-├── tnk1-pipeline/
-│   └── tnk1-pipeline/
-│       ├── configs/                       # Hyperparameter and panel configurations
-│       ├── scripts/                       # Stage 0 to Stage 8 execution runners
-│       ├── tnk1/                          # Core Python package (models, UQ, RL, AL)
-│       └── runs/
-│           ├── cycle_01/
-│           │   └── contract_to_team_b.csv # 40-compound wet-lab contract
-│           └── stage7_scored_candidates.csv # 12,000 scored candidate pool
-└── ml_research/
-    └── src/                               # Data curation and standardization modules
-```
+| Compound ID | Batch Cohort | Pred $\text{pIC}_{50}$ | Pred $\text{IC}_{50}$ (nM) | 90% Conf. CI | Vina $\Delta G$ (kcal/mol) | Hinge Dist ($\text{\AA}$) | QEPPI | Max Kinome $T$ |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **TNK1-NOV-C01-030** | NOVEL\_SCAFFOLD | 7.22 | 59.7 nM | [7.14, 7.31] | **-9.37** | 3.93 \AA\ (False) | 0.550 | 0.424 |
+| **TNK1-NOV-C01-024** | EXPLORE | 7.89 | 13.0 nM | [7.59, 8.19] | **-9.23** | **2.97 \AA\ (True)** | 0.377 | 0.352 |
+| **TNK1-NOV-C01-006** | EXPLOIT | 7.29 | 51.7 nM | [7.00, 7.58] | **-9.22** | **2.14 \AA\ (True)** | 0.468 | 0.538 |
+| **TNK1-NOV-C01-004** | EXPLOIT | 7.70 | 19.8 nM | [7.37, 8.04] | **-8.89** | **2.32 \AA\ (True)** | 0.355 | 0.500 |
+| **TNK1-NOV-C01-010** | EXPLOIT | 7.28 | 52.4 nM | [6.97, 7.60] | **-8.88** | **3.31 \AA\ (True)** | 0.572 | 0.542 |
+| **TNK1-NOV-C01-018** | EXPLORE | **8.25** | **5.68 nM** | [7.91, 8.58] | **-8.87** | **3.45 \AA\ (True)** | 0.427 | 0.345 |
+| **TNK1-NOV-C01-019** | EXPLORE | 7.57 | 27.1 nM | [7.23, 7.90] | **-8.69** | 3.79 \AA\ (False) | 0.642 | 0.333 |
+| **TNK1-NOV-C01-007** | EXPLOIT | 7.08 | 83.8 nM | [6.81, 7.35] | **-8.62** | **3.18 \AA\ (True)** | 0.573 | 0.488 |
+| **TNK1-NOV-C01-008** | EXPLOIT | 7.15 | 70.5 nM | [6.86, 7.45] | **-8.60** | **2.21 \AA\ (True)** | 0.427 | 0.482 |
+| **TNK1-NOV-C01-037** | HIGH\_PPID | 7.11 | 77.3 nM | [6.95, 7.28] | **-7.86** | **2.27 \AA\ (True)** | **0.857** | 0.342 |
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quickstart & Reproducibility
 
 ### 1. Installation
-
 ```bash
 git clone https://github.com/RathanPaida/Drug_discovery_research.git
 cd Drug_discovery_research
 
+conda create -n tnk1 python=3.10 -y
+conda activate tnk1
 pip install -r tnk1-pipeline/tnk1-pipeline/requirements-core.txt
-pip install QEPPI
+pip install rdkit meeko gemmi pytest
 ```
 
-### 2. Run Pipeline Stages
-
+### 2. Run Test Suite
 ```bash
-cd tnk1-pipeline/tnk1-pipeline
-
-# Execute active learning cycle / batch scoring
-python scripts/run_full_pipeline.py --stages 3,4,5,6,7,8 --device cuda
+pytest tnk1-pipeline/tnk1-pipeline/tests/
+# All 21 unit tests will run and pass
 ```
 
-### 3. Compute PPID and Predicted Potency Scores
-
+### 3. Run Worldwide Novelty Verification
 ```bash
-python scripts/add_ppid_and_pic50_scores.py
+python scripts/check_novelty_external.py
+```
+
+### 4. Run Molecular Docking
+```bash
+# Dock 40 novel contract molecules
+python scripts/dock_40_molecules_tnk1.py
+
+# Dock clinical controls (Dasatinib, Bosutinib, TP-0903)
+python scripts/dock_controls.py
 ```
 
 ---
 
 ## 📄 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
