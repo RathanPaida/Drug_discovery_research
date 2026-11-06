@@ -1,0 +1,11 @@
+{
+  "target": "TNK1 Kinase Domain (Residues 116-377)",
+  "engine": "AutoDock Vina v1.2.7",
+  "total_molecules": 40,
+  "docking_success_rate": "40/40 (100.0%)",
+  "mean_affinity_kcal_mol": -7.32,
+  "std_affinity_kcal_mol": 1.44,
+  "best_affinity_kcal_mol": -9.37,
+  "worst_affinity_kcal_mol": -4.12,
+  "hinge_contact_rate": "24/40 (60.0%)"
+}

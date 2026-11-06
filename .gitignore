@@ -48,3 +48,8 @@ tnk1-pipeline/tnk1-pipeline/data/processed/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Binaries and tools
+*.exe
+tools/
+
