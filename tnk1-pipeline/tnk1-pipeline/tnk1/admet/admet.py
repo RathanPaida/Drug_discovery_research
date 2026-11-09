@@ -17,14 +17,9 @@ class ADMETNet(nn.Module):
 
 
 def load_tdc(group, name, seed=42):
-    from pathlib import Path
     import pandas as pd
-    candidates = [
-        Path(__file__).resolve().parents[3] / "ml_research" / "features" / "admet_7endpoints.parquet",
-        Path("ml_research/features/admet_7endpoints.parquet"),
-        Path("d:/ML_Research/ml_research/ml_research/features/admet_7endpoints.parquet"),
-    ]
-    local_p = next((p for p in candidates if p.exists()), Path("admet_7endpoints.parquet"))
+    from ..utils.paths import feature_file
+    local_p = feature_file("admet_7endpoints.parquet")
     if local_p.exists():
         tdc_col_map = {
             "Solubility_AqSolDB": "aqsol_logS",

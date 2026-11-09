@@ -340,7 +340,8 @@ def run_stage6_7_generation(C, cfg, device):
     from tnk1.admet.filters import medchem_profile
     from tnk1.baselines.features import morgan_count
     from tnk1.rl.reward import (r_pot, r_sel, r_ad, r_sa, r_adme, r_safety,
-                                 hard_gate, aggregate, sigmoid, DiversityFilter)
+                                 hard_gate, aggregate, sigmoid, DiversityFilter,
+                                 adme_safety_components)
     from tnk1.data.standardize import standardize_smiles
 
     store, ds = C.store, C.desc_store()
@@ -356,11 +357,25 @@ def run_stage6_7_generation(C, cfg, device):
     ad = pickle.load(open(C.proc / "ad.pkl", "rb"))
     bundles = torch.load(C.proc / "admet_bundles.pt", weights_only=False)
 
+    # Validate the endpoint set ONCE, before the scoring loop. A missing endpoint model is a
+    # systematic failure: without this it would raise inside every batch's try/except, be
+    # logged ~n_batches times, silently drop all results, and then fail confusingly on an
+    # empty DataFrame. Fail fast and say what is missing instead.
+    from tnk1.rl.reward import REQUIRED_ENDPOINTS
+    _missing = [e for e in REQUIRED_ENDPOINTS if e not in bundles]
+    if _missing:
+        raise KeyError(
+            f"admet_bundles.pt is missing endpoint model(s) {sorted(_missing)}; "
+            f"has {sorted(bundles)}. Run Stage 5 (`make admet`) before scoring -- scoring "
+            f"is fail-closed and will not substitute optimistic defaults."
+        )
+
     # Source molecules from the FULL kinome dataset (not just TNK1)
     # Use the 787K unique molecules and multi-kinase actives as our generation pool
     log("  [6-7.1] Building candidate pool from full kinome dataset (491 kinases)...")
 
-    features_dir = Path("d:/ML_Research/ml_research/ml_research/features")
+    from tnk1.utils.paths import features_dir as _features_dir
+    features_dir = _features_dir()   # $TNK1_FEATURES_DIR aware; was a hardcoded d:/ path
     kinome_df = C.df.copy()
     S = dict(zip(store["ids"], store["S"]))
 
@@ -457,14 +472,15 @@ def run_stage6_7_generation(C, cfg, device):
             FP = morgan_count(batch_smi)
             d_lat, _ = ad.distances(Z, FP)
 
-            # ADMET predictions
+            # ADMET predictions. Fail CLOSED: a failed endpoint must abort this batch, never
+            # be substituted with zeros -- p(hERG)=p(AMES)=0 reads as perfect safety and
+            # passes the hard gate, so the old `except: np.zeros(...)` fabricated clean
+            # tox profiles for every molecule whenever an endpoint model errored.
             ep = {}
             for ep_name, bundle in bundles.items():
-                try:
-                    pred, _ = predict_endpoint(bundle, batch_smi, sc, device)
-                    ep[ep_name] = pred
-                except Exception:
-                    ep[ep_name] = np.zeros(len(batch_smi))
+                pred, _ = predict_endpoint(bundle, batch_smi, sc, device)
+                ep[ep_name] = pred
+            batch_aps = adme_safety_components(ep, len(batch_smi))
 
             # MedChem profiles
             profs = [medchem_profile(s) for s in batch_smi]
@@ -478,23 +494,17 @@ def run_stage6_7_generation(C, cfg, device):
                     "sel": float(r_sel(sel["mu_sel"][i:i+1], sel["sigma_sel"][i:i+1], rl_cfg["gamma"], rl_cfg["sel_c"], rl_cfg["sel_k"])[0]),
                     "ad": float(r_ad(d_lat[i:i+1], ad.d_thr_lat, rl_cfg["ad_scale"])[0]),
                     "sa": float(r_sa(prof["sa"])),
-                    "adme": float(r_adme(
-                        sigmoid(ep.get("solubility", np.zeros(len(batch_smi)))[i], -5.0, 3.0),
-                        sigmoid(ep.get("caco2", np.zeros(len(batch_smi)))[i], -5.15, 3.0),
-                        1 - sigmoid(np.log10(max(float(ep.get("microsome", np.zeros(len(batch_smi)))[i]), 1e-3)),
-                                    np.log10(30.0), 3.0)
-                    )),
-                    "safety": float(r_safety(
-                        ep.get("herg", np.zeros(len(batch_smi)))[i],
-                        ep.get("ames", np.zeros(len(batch_smi)))[i],
-                        ep.get("cyp3a4", np.zeros(len(batch_smi)))[i]
-                    )),
+                    "adme": float(batch_aps["adme"][i]),
+                    "safety": float(batch_aps["safety"][i]),
                     "qed": prof["qed"],
                 }
+                # identical gate to the online RL scorer, p(hERG) term included
                 gate_val = float(hard_gate(
                     np.array([1.0]), np.array([prof["n_alerts"]]),
-                    np.array([prof["mw"]]), np.array([ep.get("ames", np.zeros(len(batch_smi)))[i]]),
-                    cfg["filters"]["mw_max_hard"]
+                    np.array([prof["mw"]]), np.array([batch_aps["ep"]["ames"][i]]),
+                    cfg["filters"]["mw_max_hard"],
+                    p_herg=np.array([batch_aps["ep"]["herg"][i]]),
+                    p_herg_max=cfg["filters"]["herg_max"],
                 )[0])
                 total_r = float(aggregate(
                     {k: np.array([v]) for k, v in comps.items()}, w, np.array([gate_val])

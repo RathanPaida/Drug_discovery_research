@@ -35,9 +35,8 @@ def main():
         ])
         ref_df.to_csv(ref_panel_path, index=False)
 
-    features_dir = Path(__file__).resolve().parent.parent.parent.parent / "features"
-    if not features_dir.exists():
-        features_dir = Path("d:/ML_Research/ml_research/ml_research/features")
+    from tnk1.utils.paths import features_dir as _features_dir
+    features_dir = _features_dir()   # $TNK1_FEATURES_DIR aware; was a hardcoded d:/ path
 
     kinase_table_path = Path(d["kinase_table"])
     if not kinase_table_path.exists() and (features_dir / "kinome_similarity_scores.parquet").exists():

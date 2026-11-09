@@ -55,7 +55,12 @@ class NumberedCanvas(canvas.Canvas):
         self.restoreState()
 
 
-def build_pdf(report_path="d:/ML_Research/ml_research/TNK1_Pipeline_Results_Report.pdf"):
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def build_pdf(report_path=None):
+    # was a hardcoded d:/ path; resolve relative to the checkout instead
+    report_path = Path(report_path) if report_path else REPO_ROOT / "TNK1_Pipeline_Results_Report.pdf"
     doc = SimpleDocTemplate(
         report_path,
         pagesize=letter,
@@ -367,7 +372,7 @@ def build_pdf(report_path="d:/ML_Research/ml_research/TNK1_Pipeline_Results_Repo
     story.append(Spacer(1, 6))
 
     # Top Contract Candidates Table
-    contract_p = Path("d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv")
+    contract_p = REPO_ROOT / "tnk1-pipeline" / "tnk1-pipeline" / "runs" / "cycle_01" / "contract_to_team_b.csv"
     if contract_p.exists():
         ct_df = pd.read_csv(contract_p)
         story.append(Paragraph("Key Representative Lead Candidates from Cycle 1 Contract (Sampled Across Slices):", h2_style))
@@ -470,7 +475,7 @@ def build_pdf(report_path="d:/ML_Research/ml_research/TNK1_Pipeline_Results_Repo
 
 
 if __name__ == "__main__":
-    out_pdf = "d:/ML_Research/ml_research/TNK1_Pipeline_Results_Report.pdf"
+    out_pdf = REPO_ROOT / "TNK1_Pipeline_Results_Report.pdf"
     if len(sys.argv) > 1:
         out_pdf = sys.argv[1]
     build_pdf(out_pdf)

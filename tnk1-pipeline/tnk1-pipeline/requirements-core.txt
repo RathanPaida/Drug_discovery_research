@@ -1,7 +1,16 @@
-numpy
+# Core (numpy-only) environment: enough to run `pytest -m "not network"` and every
+# pure-numpy module (uq, selectivity, reward, splits, utils).
+#
+# numpy >= 2.0 is REQUIRED, not optional: tnk1/novelty/verifier.py uses np.bitwise_count
+# for the packed-fingerprint Tanimoto scan, which was added in NumPy 2.0.
+numpy>=2.0
 pandas
 scipy
 scikit-learn
 pyyaml
 pyarrow
 pytest
+
+# Chemistry + deep learning live in requirements-chem.txt / the conda envs, because the
+# RDKit-dependent and torch-dependent stages cannot run without them. The suite skips
+# those tests cleanly rather than failing collection.

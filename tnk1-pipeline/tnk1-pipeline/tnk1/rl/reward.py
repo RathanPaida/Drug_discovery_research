@@ -29,9 +29,84 @@ def r_safety(p_herg, p_ames, p_cyp3a4):
     return (1 - np.asarray(p_herg)) * (1 - np.asarray(p_ames)) * (1 - 0.5 * np.asarray(p_cyp3a4))
 
 
-def r_novelty(inchikeys, known_inchikeys_set) -> np.ndarray:
-    """Strict cryptographic novelty verification gate: returns 1.0 if unseen, 0.0 if known."""
-    return np.array([0.0 if ik in known_inchikeys_set or (ik[:14] in known_inchikeys_set if ik else False) else 1.0 for ik in inchikeys], dtype=float)
+# Endpoints that r_adme / r_safety / hard_gate all require to be real predictions.
+REQUIRED_ENDPOINTS = ("solubility", "caco2", "microsome", "herg", "ames", "cyp3a4")
+
+
+def require_endpoints(ep: dict, n: int, names=REQUIRED_ENDPOINTS) -> dict:
+    """Fail CLOSED on missing ADMET predictions.
+
+    The previous call sites used `ep.get(name, np.zeros(n))`, which is actively dangerous:
+    p(hERG)=p(AMES)=p(CYP3A4)=0 is *perfect* safety (r_safety -> 1.0) and passes `hard_gate`,
+    and logS=logPapp=0 / CLint->1e-3 are the *best* possible ADME values. A missing or
+    failed-to-load endpoint model therefore produced a flawless safety profile rather than
+    an error. Absence of evidence must not score as evidence of safety.
+
+    Returns the validated arrays (float, length n) or raises KeyError/ValueError.
+    """
+    missing = [k for k in names if k not in ep or ep[k] is None]
+    if missing:
+        raise KeyError(
+            f"missing ADMET endpoint prediction(s): {sorted(missing)}. Scoring is "
+            f"fail-closed: train/load every endpoint in cfg['admet']['endpoints'] "
+            f"(Stage 5 `make admet`) before scoring candidates."
+        )
+    out = {}
+    for k in names:
+        v = np.asarray(ep[k], dtype=float).reshape(-1)
+        if v.shape[0] != n:
+            raise ValueError(f"endpoint '{k}' has length {v.shape[0]}, expected {n}")
+        if not np.isfinite(v).all():
+            raise ValueError(f"endpoint '{k}' contains non-finite predictions")
+        out[k] = v
+    return out
+
+
+def adme_safety_components(ep: dict, n: int) -> dict:
+    """The single definition of the `adme` and `safety` reward terms.
+
+    Both `tnk1.rl.scorer.Scorer.score` (online RL) and `scripts/run_full_pipeline.py`
+    (offline scoring) call this, so the two paths cannot drift apart again -- they already
+    had: the offline path omitted the p(hERG) argument to `hard_gate`, silently dropping
+    the hERG hard filter for every candidate it scored.
+    """
+    e = require_endpoints(ep, n)
+    adme = r_adme(
+        sigmoid(e["solubility"], -5.0, 3.0),
+        sigmoid(e["caco2"], -5.15, 3.0),
+        1 - sigmoid(np.log10(np.maximum(e["microsome"], 1e-3)), np.log10(30.0), 3.0),
+    )
+    return {"adme": adme, "safety": r_safety(e["herg"], e["ames"], e["cyp3a4"]), "ep": e}
+
+
+def r_novelty(inchikeys, known_inchikeys, known_skeletons=None) -> np.ndarray:
+    """Strict InChIKey novelty gate: 1.0 if unseen, 0.0 if known (or unparseable).
+
+    `known_inchikeys` holds full 27-character Standard InChIKeys; `known_skeletons` holds
+    14-character skeletal (connectivity-layer) hashes. They are SEPARATE sets: a 14-char
+    skeleton is never a member of a set of 27-char keys, so passing one set for both
+    silently disables the skeletal check. When `known_skeletons` is omitted only the exact
+    check is applied.
+
+    An empty/None InChIKey means standardisation failed, which scores 0.0 (not novel) --
+    novelty must be positively demonstrated, never inferred from missing data.
+
+    NOTE: this component is deliberately NOT in COMPONENTS and is not applied by
+    `aggregate`. Generation-time novelty is enforced by REINVENT's own prior-novelty check
+    plus the post-hoc Stage 7 audit in `tnk1.novelty.verifier`. Wire it in as a multiplier
+    only after agreeing the reward change with the PI, since it alters published rewards.
+    """
+    known = set(known_inchikeys)
+    skel = set(known_skeletons) if known_skeletons is not None else set()
+    out = []
+    for ik in inchikeys:
+        if not ik:
+            out.append(0.0)
+        elif ik in known or ik[:14] in skel:
+            out.append(0.0)
+        else:
+            out.append(1.0)
+    return np.array(out, dtype=float)
 
 
 def hard_gate(valid, n_alerts, mw, p_ames, mw_max=600.0, p_herg=None, p_herg_max=0.85):

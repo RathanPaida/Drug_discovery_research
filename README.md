@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
 [![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
-[![Tests](https://img.shields.io/badge/pytest-21%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/pytest-63%20passed-success.svg)](tnk1-pipeline/tnk1-pipeline/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
@@ -20,6 +20,21 @@ For the full, exhaustive technical report covering biological mechanisms, chemog
 For the full IEEE/ACM TCBB research manuscript LaTeX source code, please see:
 
 👉 **[`paper/tnk1_ai_discovery_ieee.tex`](paper/tnk1_ai_discovery_ieee.tex)**
+
+For the engineering state of the pipeline — the 2026-11-09 defect audit, what was
+remediated, which claims are affected, the open PI decisions and the prioritised next
+actions — please see:
+
+👉 **[Pipeline Audit & Remediation Log](PIPELINE_AUDIT.md)**
+
+> **Reproducibility note.** The precomputed feature stores (~280 MB) are gitignored, so a
+> fresh clone has 11 of 12 absent. Stages downstream of Stage 1, and the local half of the
+> novelty audit, cannot run until they are restored — run
+> `make verify-features` to check. Since the audit the pipeline is **fail-closed**: a
+> missing store or a failed registry query now raises or reports `INCONCLUSIVE` rather than
+> silently scoring as optimal. One consequence: the Cycle-01 novelty verdicts in
+> `runs/cycle_01/` were produced by the previous fail-open code and are pending a re-audit
+> (see [OPEN-3](PIPELINE_AUDIT.md#5-open-decisions-need-the-pi)).
 
 ---
 
@@ -103,15 +118,31 @@ cd Drug_discovery_research
 
 conda create -n tnk1 python=3.10 -y
 conda activate tnk1
+
+# core: numpy-only modules + the hermetic test suite
 pip install -r tnk1-pipeline/tnk1-pipeline/requirements-core.txt
-pip install rdkit meeko gemmi pytest
+
+# chemistry + deep learning: required for every generative, scoring and docking stage
+pip install -r tnk1-pipeline/tnk1-pipeline/requirements-chem.txt
+
+# point the pipeline at the feature store (optional if it sits at ml_research/features)
+export TNK1_FEATURES_DIR=/path/to/ml_research/features
 ```
 
 ### 2. Run Test Suite
 ```bash
 pytest tnk1-pipeline/tnk1-pipeline/tests/
-# All 21 unit tests will run and pass
+# 61 hermetic tests pass; 2 live-registry tests are deselected by default
+
+pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
+# the 2 opt-in PubChem / UniChem checks
+
+cd tnk1-pipeline/tnk1-pipeline && make verify-features
+# sha256 the feature store against ml_research/features/manifest.json
 ```
+
+Installing only `requirements-core.txt` is supported — the RDKit-dependent tests skip
+cleanly instead of failing collection.
 
 ### 3. Run Worldwide Novelty Verification
 ```bash

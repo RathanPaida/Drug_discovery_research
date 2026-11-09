@@ -65,6 +65,35 @@ ens = Ensemble(cfg, C.store, C.desc_store(), C.proc / "ensemble", device)
 cal = pickle.load(open(C.proc / "calibrator.pkl", "rb"))
 ad = pickle.load(open(C.proc / "ad.pkl", "rb"))
 bundles = torch.load(C.proc / "admet_bundles.pt", weights_only=False)
+
+# Validate the endpoint set up front: scoring is fail-closed, so a missing model must stop
+# the run here with a clear message rather than raising deep inside the generation loop.
+# (`solubility` is excluded -- this script uses the analytic ESOL estimate instead.)
+def _conformal_q(calibrator):
+    """The fitted split-conformal quantile, or a hard failure.
+
+    A conformal interval is only meaningful with a q_hat fitted on held-out residuals.
+    Returning a literal default would produce intervals that look calibrated but are not,
+    so an unfitted calibrator stops the run.
+    """
+    q = getattr(calibrator, "q", None)
+    if q is None or not np.isfinite(q) or q <= 0:
+        raise RuntimeError(
+            f"calibrator has no usable conformal quantile (q={q!r}). Run Stage 4 "
+            f"(`make calibrate`) and load the resulting calibrator.pkl; the reported 90% "
+            f"intervals must come from a fitted q_hat, never from a hardcoded constant."
+        )
+    return float(q)
+
+
+_REQ_EP = ("caco2", "microsome", "herg", "ames", "cyp3a4", "cyp2d6")
+_missing_ep = [e for e in _REQ_EP if e not in bundles]
+if _missing_ep:
+    raise KeyError(
+        f"admet_bundles.pt is missing endpoint model(s) {sorted(_missing_ep)}; "
+        f"has {sorted(bundles)}. Run Stage 5 (`make admet`) first -- scoring will not "
+        f"substitute optimistic defaults for a missing tox or ADME model."
+    )
 desc_scaler = C.desc_scaler()
 os.chdir(original_cwd)
 
@@ -132,14 +161,17 @@ def evaluate_pharmacology(smiles_list, beta=1.5, gamma=1.0):
         FP = morgan_count(valid_smiles)
         d_lat, _ = ad.distances(Z, FP)
 
-        # ADMET predictions
+        # ADMET predictions. Fail CLOSED (see tnk1.rl.reward.require_endpoints): substituting
+        # zeros for a failed endpoint reads as p(hERG)=p(AMES)=p(CYP3A4)=0, i.e. a perfect
+        # tox profile that also passes the hard gate.
         ep = {}
         for ep_name, bundle in bundles.items():
-            try:
-                pred, _ = predict_endpoint(bundle, valid_smiles, desc_scaler, device)
-                ep[ep_name] = pred
-            except Exception:
-                ep[ep_name] = np.zeros(n)
+            pred, _ = predict_endpoint(bundle, valid_smiles, desc_scaler, device)
+            ep[ep_name] = pred
+        # solubility comes from the analytic ESOL estimate below, not from the endpoint set
+        ep_req = R.require_endpoints(
+            ep, n, names=("caco2", "microsome", "herg", "ames", "cyp3a4", "cyp2d6")
+        )
 
     # Medchem profiles
     profs = [medchem_profile(s) for s in valid_smiles]
@@ -166,13 +198,13 @@ def evaluate_pharmacology(smiles_list, beta=1.5, gamma=1.0):
         sigma_sel = float(sel["sigma_sel"][i])
         d_lat_val = float(d_lat[i])
 
-        # ADMET & Safety endpoints
-        caco2 = float(ep.get("caco2", np.zeros(n))[i])
-        micro = float(ep.get("microsome", np.zeros(n))[i])
-        herg = float(ep.get("herg", np.zeros(n))[i])
-        ames = float(ep.get("ames", np.zeros(n))[i])
-        cyp3a4 = float(ep.get("cyp3a4", np.zeros(n))[i])
-        cyp2d6 = float(ep.get("cyp2d6", np.zeros(n))[i])
+        # ADMET & Safety endpoints (validated above; no optimistic defaults)
+        caco2 = float(ep_req["caco2"][i])
+        micro = float(ep_req["microsome"][i])
+        herg = float(ep_req["herg"][i])
+        ames = float(ep_req["ames"][i])
+        cyp3a4 = float(ep_req["cyp3a4"][i])
+        cyp2d6 = float(ep_req["cyp2d6"][i])
 
         # ESOL aqueous solubility
         clogp = Crippen.MolLogP(mol)
@@ -204,10 +236,13 @@ def evaluate_pharmacology(smiles_list, beta=1.5, gamma=1.0):
             "sa": r_sa_val, "adme": r_adme_val, "safety": r_safety_val, "qed": r_qed_val
         }
 
+        # p(hERG) included so this matches tnk1.rl.scorer.Scorer.score exactly
         gate_val = float(R.hard_gate(
             np.array([1.0]), np.array([prof["n_alerts"]]),
             np.array([prof["mw"]]), np.array([ames]),
-            cfg["filters"]["mw_max_hard"]
+            cfg["filters"]["mw_max_hard"],
+            p_herg=np.array([herg]),
+            p_herg_max=cfg["filters"]["herg_max"],
         )[0])
 
         total_r = float(R.aggregate(
@@ -218,8 +253,11 @@ def evaluate_pharmacology(smiles_list, beta=1.5, gamma=1.0):
         novelty_multiplier = 0.0 if is_known else 1.0
         final_rl_reward = total_r * novelty_multiplier
 
-        # Conformal interval using calibrated q
-        q_val = float(getattr(cal, "q", 1.743))
+        # Conformal interval using the calibrated q. Fail CLOSED: the previous
+        # `getattr(cal, "q", 1.743)` silently substituted a literal copied from an earlier
+        # run whenever the calibrator had not been fitted, so every reported 90% interval
+        # would have looked calibrated while resting on a hardcoded number.
+        q_val = _conformal_q(cal)
         ci_low = max(0.0, mu_tnk1 - q_val * sigma_epi)
         ci_high = mu_tnk1 + q_val * sigma_epi
 

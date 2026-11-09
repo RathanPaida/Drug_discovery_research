@@ -90,7 +90,15 @@ admet:
     cyp2d6: {tdc: ["ADME", "CYP2D6_Veith"], task: cls}
     herg: {tdc: ["Tox", "hERG_Karim"], task: cls}
     ames: {tdc: ["Tox", "AMES"], task: cls}
-filters: {sa_max: 4.2, mw_max_hard: 600}
+filters:
+  sa_max: 4.2
+  mw_max_hard: 600
+  # Hard-gate p(hERG) ceiling. Was previously unset and resolved by a code-level
+  # `.get("herg_max", 0.85)` default, so the gate admitted p(hERG) up to 0.85 while the
+  # TPP table in tnk1/admet/admet.py asks for hERG < 0.20. Pinned here at the historical
+  # 0.85 so locked Cycle-01 numbers still reproduce; see OPEN DECISION in
+  # PIPELINE_AUDIT.md before tightening it towards the TPP for Cycle 02.
+  herg_max: 0.85
 
 # ---------------- Stage 6/7 ----------------
 rl:

@@ -478,6 +478,10 @@ def build_pdf(output_paths):
 
 
 if __name__ == "__main__":
-    p_ws = Path("d:/ML_Research/ml_research/TNK1_Pipeline_Results_Report.pdf")
-    p_art = Path("C:/Users/paida/.gemini/antigravity-ide/brain/889937dd-4a88-42ab-9ba7-e95121d47f53/TNK1_Pipeline_Results_Report.pdf")
-    build_pdf([p_ws, p_art])
+    # was a hardcoded d:/ path; resolve relative to the checkout instead
+    p_ws = Path(__file__).resolve().parents[2] / "TNK1_Pipeline_Results_Report.pdf"
+    # Optional second output location, e.g. a shared drive. Set TNK1_REPORT_EXTRA_PATH;
+    # previously this was a hardcoded path into another machine's IDE scratch directory.
+    extra = os.environ.get("TNK1_REPORT_EXTRA_PATH")
+    targets = [p_ws] + ([Path(extra)] if extra else [])
+    build_pdf(targets)

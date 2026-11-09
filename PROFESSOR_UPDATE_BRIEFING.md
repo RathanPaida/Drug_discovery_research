@@ -1,16 +1,43 @@
 # Executive Briefing for Professor: TNK1 Closed-Loop AI Discovery Pipeline
 **Target:** Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)  
 **Status:** Closed-Loop Pharmacological Reinforcement Learning (RL) De Novo Discovery Executed on GPU  
-**Novel Candidate Database:** [rl_novel_candidates_pharmacology.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)  
-**100% Novel Wet-Lab Contract:** [contract_novel_team_b.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) / [contract_to_team_b.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)  
-**Worldwide External Novelty Audit:** [novelty_verification_results.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv) | [novelty_verification_summary.json](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
+**Novel Candidate Database:** [rl_novel_candidates_pharmacology.csv](tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)  
+**100% Novel Wet-Lab Contract:** [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) / [contract_to_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)  
+**Worldwide External Novelty Audit:** [novelty_verification_results.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv) | [novelty_verification_summary.json](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
+
+---
+
+## 0. Status Note — Please Read First (added 2026-11-09)
+
+A full engineering audit of the pipeline was completed on 2026-11-09
+([`PIPELINE_AUDIT.md`](PIPELINE_AUDIT.md)). It did **not** overturn the scientific results
+summarised below — the Cycle-01 run had every model and data store present, so none of the
+defective failure paths was exercised. Three items nonetheless require your decision
+**before synthesis is commissioned**:
+
+1. **One compound exceeds the cardiotoxicity gate.** A defect caused the offline scorer to
+   omit the $p(	ext{hERG})$ term from its hard filter, so the filter never fired.
+   **`TNK1-NOV-C01-012`** (EXPLOIT slice) carries $p(	ext{hERG}) = 0.8645$, above the
+   configured $0.85$ ceiling, and is in the 40-compound contract as a result. The other 39
+   pass. Separately, 29 of 40 exceed the stricter TPP target of $0.20$ — the gate and the
+   TPP disagree, and which one governs is a decision, not a bug (AUDIT OPEN-1).
+2. **The novelty audit should be re-run.** The verifier could not previously distinguish
+   "verified absent from the registry" from "the query failed", and treated both as
+   evidence of novelty. The claim is very likely sound — the live PubChem and UniChem
+   checks still pass today — but the `0/40` figures below were produced under the old
+   logic and are pending re-audit under the corrected, fail-closed verifier (AUDIT OPEN-3).
+3. **Two reward-design choices** are open for Cycle 02 (AUDIT OPEN-1, OPEN-2).
+
+The pipeline is now fail-closed: a missing model, absent data store or failed registry
+query raises or reports `INCONCLUSIVE`, rather than silently scoring as optimal.
 
 ---
 
 ## 1. Quick Answers to Core Questions
 
 ### Q1: Are the molecules truly novel (exist anywhere in the world or not)?
-**Yes, 100% verified across all global public chemical databases.**
+**Yes — 0 / 40 matched any global public chemical database in the Cycle-01 audit.**
+*(Figures below are from that audit; see Status Note item 2 on the pending re-audit.)*
 - **PubChem (115M+ Compounds):** **0 / 40 matches (0.0% known)**. Evaluated via PUG REST InChIKey query.
 - **UniChem 2.0 (38 Databases):** **0 / 40 matches (0.0% known)**. Cross-referenced against ChEMBL 34, DrugBank, SureChEMBL (patents), RCSB PDB, Guide to PHARMACOLOGY, ZINC, BindingDB, and KEGG.
 - **Local 788k Kinome Feature Store:** **0 / 40 matches (0.0% known)**. Evaluated against both 27-character Standard InChIKey and 14-character skeletal hashes across all 787,283 known kinase compounds.
@@ -52,7 +79,7 @@ Every compound is profiled across **36 distinct pharmacological, safety, and pha
 
 ## 2. Active Learning Stratified 40-Compound Contract
 
-The 40 candidates in [contract_novel_team_b.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) are stratified into 4 deliberate scientific cohorts:
+The 40 candidates in [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) are stratified into 4 deliberate scientific cohorts:
 
 1. **Exploitation Slice (16 compounds, 40%):** Immediate lead drug candidates with sub-50 nM predicted potency ($\text{pIC}_{50} \in [7.01, 7.70]$), high selectivity, and confirmed hinge-binding motifs.
 2. **Exploration Slice (12 compounds, 30%):** Designed to probe areas of high epistemic uncertainty ($\sigma_{\text{epi}} \in [0.15, 0.28]$) in novel chemical space to rapidly expand model knowledge.
@@ -79,11 +106,11 @@ The 40 candidates in [contract_novel_team_b.csv](file:///d:/ML_Research/ml_resea
 
 ## 4. Key Deliverable Files
 
-- **Official 100% Novel Contract (40 Cpds):** [contract_novel_team_b.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv)
-- **Active Team B Contract:** [contract_to_team_b.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)
-- **Worldwide External Novelty Audit Results (40 Cpds):** [novelty_verification_results.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv)
-- **Worldwide External Novelty Summary:** [novelty_verification_summary.json](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
-- **Full Harvested Novel Candidate Pool (with 36 pharmacological features):** [rl_novel_candidates_pharmacology.csv](file:///d:/ML_Research/ml_research/tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)
-- **RL Generative Execution Engine:** [run_rl_novel_generation.py](file:///d:/ML_Research/ml_research/scripts/run_rl_novel_generation.py)
-- **Worldwide External Novelty Verifier Script:** [check_novelty_external.py](file:///d:/ML_Research/ml_research/scripts/check_novelty_external.py)
-- **Kinome 788k Tanimoto Similarity Scanner:** [scan_similarity_788k.py](file:///d:/ML_Research/ml_research/scripts/scan_similarity_788k.py)
+- **Official 100% Novel Contract (40 Cpds):** [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv)
+- **Active Team B Contract:** [contract_to_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)
+- **Worldwide External Novelty Audit Results (40 Cpds):** [novelty_verification_results.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv)
+- **Worldwide External Novelty Summary:** [novelty_verification_summary.json](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
+- **Full Harvested Novel Candidate Pool (with 36 pharmacological features):** [rl_novel_candidates_pharmacology.csv](tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)
+- **RL Generative Execution Engine:** [run_rl_novel_generation.py](scripts/run_rl_novel_generation.py)
+- **Worldwide External Novelty Verifier Script:** [check_novelty_external.py](scripts/check_novelty_external.py)
+- **Kinome 788k Tanimoto Similarity Scanner:** [scan_similarity_788k.py](scripts/scan_similarity_788k.py)

@@ -65,12 +65,8 @@ def build_kinase_store(kin_df, tnk1_uniprot, device="cuda", w_klifs=0.7, w_esm=0
         print("Loading precomputed Stage 3.4 S_k similarity scores and standardized 1280d kinase pocket representations...")
         from pathlib import Path
         import pandas as pd
-        candidates = [
-            Path(__file__).resolve().parents[3] / "ml_research" / "features" / "kinome_similarity_scores.parquet",
-            Path("ml_research/features/kinome_similarity_scores.parquet"),
-            Path("d:/ML_Research/ml_research/ml_research/features/kinome_similarity_scores.parquet"),
-        ]
-        feat_p = next((p for p in candidates if p.exists()), Path("kinome_similarity_scores.parquet"))
+        from ..utils.paths import feature_file
+        feat_p = feature_file("kinome_similarity_scores.parquet")
         if feat_p.exists():
             df_sim = pd.read_parquet(feat_p)
             sk_map = dict(zip(df_sim["uniprot_id"], df_sim["composite_similarity_Sk"]))

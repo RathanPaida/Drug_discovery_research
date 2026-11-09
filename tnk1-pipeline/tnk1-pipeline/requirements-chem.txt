@@ -1,0 +1,21 @@
+# Chemistry / deep-learning extras. Needed by: novelty verification, ADMET endpoints,
+# med-chem filters, the D-MPNN trunk, RL generation and docking.
+#
+# Installing requirements-core.txt alone is a supported configuration -- the test suite
+# skips the RDKit-dependent module instead of failing collection -- but no generative or
+# scoring stage can run without these.
+-r requirements-core.txt
+
+rdkit>=2023.9
+torch>=2.1
+
+# Docking (Stage 8): AutoDock Vina 1.2.7 itself is an external binary, not a wheel.
+meeko
+gemmi
+
+# PPID / QEPPI drug-likeness used by scripts/run_rl_novel_generation.py
+# QEPPI is not on PyPI under this name for all platforms; see its upstream repo.
+# QEPPI
+
+# Retrospective baselines (Stage 2)
+xgboost

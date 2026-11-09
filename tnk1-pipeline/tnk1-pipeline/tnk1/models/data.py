@@ -21,13 +21,11 @@ class DescStore:
     """Scaled 200-d RDKit descriptors keyed by SMILES (scaler fit on unlabeled/train molecules only)."""
     def __init__(self, scaler):
         self.scaler, self.cache = scaler, {}
-        from pathlib import Path
-        candidates = [
-            Path(__file__).resolve().parents[3] / "ml_research" / "features",
-            Path(__file__).resolve().parents[4] / "features",
-            Path("ml_research/features"),
-            Path("d:/ML_Research/ml_research/ml_research/features"),
-        ]
+        from ..utils.paths import features_dir
+        # single resolver (honours $TNK1_FEATURES_DIR); the previous parents[3]/parents[4]
+        # candidates were off by one and never resolved, so this always fell through to a
+        # hardcoded d:/ path that exists only on the original author's machine.
+        candidates = [features_dir()]
         p_npz, p_parq = None, None
         for c in candidates:
             npz_candidate = c / "unique_molecules_descriptors_200d.npz"
@@ -43,8 +41,16 @@ class DescStore:
                 desc = npz["descriptors_200d"]
                 scaled = self.scaler.transform(desc)
                 self.cache = dict(zip(df_mol.canonical_smiles, scaled))
-            except Exception:
-                pass
+            except Exception as e:
+                # Not fatal: `get()` recomputes any miss, so results are unchanged -- only
+                # slower. But warn instead of swallowing, so a silently-dropped 787k-row
+                # cache does not get mistaken for a performance mystery.
+                import warnings
+                warnings.warn(
+                    f"precomputed descriptor cache at {p_npz} could not be loaded "
+                    f"({type(e).__name__}: {e}); descriptors will be recomputed on demand",
+                    RuntimeWarning, stacklevel=2,
+                )
 
     def get(self, smiles):
         miss = [s for s in dict.fromkeys(smiles) if s not in self.cache]

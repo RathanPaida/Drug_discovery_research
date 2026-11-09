@@ -202,7 +202,10 @@ sequenceDiagram
 
 ## 9. Master Asset Registry & SHA-256 Checksums
 
-Every generated dataset is locked in `features/manifest.json`:
+Every generated dataset is locked in `features/manifest.json`. Verify the live store
+against it with `make verify-features` (see
+[`PIPELINE_AUDIT.md`](PIPELINE_AUDIT.md) §6) — the checksums below are the expected
+values, not a confirmation that the files on disk still match them:
 
 ```json
 {
@@ -210,13 +213,13 @@ Every generated dataset is locked in `features/manifest.json`:
   "tnk1_nested_scaffold_splits_5x5.json": "7ed825f357dbc9d69ac91aac843984bde6862ce8864c587fbb97fc835781bf6b",
   "tnk1_baseline_features_2248d.npz": "275663144ac36479f21bcb0fd563e4d87ecd775f4ad17fd67f83bbf0a5e6dec7",
   "tnk1_graph_dmpnn.pkl": "65aaed21449ce8e6456e292a1e883144a075e9c4cb5e8bc31fc6337c87451913",
-  "kinome_similarity_scores.parquet": "3b1aef654bbb0b76426ec09cf6e9ba9dcba93a8915b4974f179727ee2c85e252",
-  "offtargets_curated.parquet": "54d441ffa41f589b33a598ebc31ba58d3493fb69b9148d447fdbbce4e107df62",
-  "admet_7endpoints.parquet": "5008dea536b424ba7750854c15372ca62c3b65287e07a3c31ea3a31c3fc37775",
-  "kinome_multitask_300k.parquet": "55fa58097c2bca586027c9197dc343b6e828d15024cb5352654aa3fc6e80b2a9",
-  "kinome_all_measurements_3.95M.parquet": "16619257e8d7bf4753ba01fc63eb5c6bdf255979b008d32b509f6b92a4fb8f5b",
-  "unique_molecules_788k.parquet": "9391e01b8e7131572df6c5b05fa5f917208d13e3bdf8a216cb45f8f844f2d338",
-  "unique_molecules_fingerprints_2048bit.npz": "cb71026e1ee7dba454746328ae476721da144be806dd0154bf565b9ea426b3bf",
-  "unique_molecules_descriptors_200d.npz": "2f61735fe3cf24e4c27fcabcf0f9be3e32e541457f5c76db2e185fb84da8285d"
+  "kinome_similarity_scores.parquet": "3b1aef654bbb0b763c215b493f450e469e94b9ee0c5b6b02fcc80b80080852b7",
+  "offtargets_curated.parquet": "54d441ffa41f589b22f42ba0672934a0def09f318bbf947f3605e1530c9bc254",
+  "admet_7endpoints.parquet": "5008dea536b424baa7c01a50d3db486314aec9b0d51d2d743fc7f36bb9350a41",
+  "kinome_multitask_300k.parquet": "55fa58097c2bca58612f62055c1682f3cd9307478a64f4b8aa80229346189610",
+  "kinome_all_measurements_3.95M.parquet": "16619257e8d7bf4774d2ee59f227323b7f5a7eff3c7a9bf4cde87ddda37549c7",
+  "unique_molecules_788k.parquet": "9391e01b8e713157ade34b7218fba28e6d2f2ce8024149a2d4fa0d7aabb13dfd",
+  "unique_molecules_fingerprints_2048bit.npz": "cb71026e1ee7dba45b2c8c13ba267b85139154bb75f4cf4e3b2dd568d9da7e3a",
+  "unique_molecules_descriptors_200d.npz": "2f61735fe3cf24e4d48c3e2d9449165c048a6656d2e34257b0a57a66c6eb641b"
 }
 ```

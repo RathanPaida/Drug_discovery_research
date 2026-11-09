@@ -2,26 +2,38 @@
 
 This directory contains the finalized, standardized, and hash-locked datasets and feature matrices built in accordance with the **TNK1 AI Pipeline Technical Manual** (Stages 0 through 5, and Stage 8 Data Contract).
 
-All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:///d:/ML_Research/ml_research/ml_research/features/manifest.json).
+All datasets are locked with SHA-256 checksums recorded in [manifest.json](manifest.json).
+
+**Verify them before quoting any result that depends on them:**
+
+```bash
+cd tnk1-pipeline/tnk1-pipeline && make verify-features
+# or: python -m tnk1.utils.verify_features [filename ...]
+# exit 0 only if every manifest entry is present and its sha256 matches
+```
+
+These files are gitignored (~280 MB), so a fresh clone reports most of them as `absent`;
+that means the stages depending on them cannot run, and is not a pass. If the store lives
+outside the repo, point the pipeline at it with `$TNK1_FEATURES_DIR`.
 
 ---
 
 ## 1. TNK1 Target Dataset & Frozen 5×5 Nested Scaffold Splits (Stages 1 & 2)
-- **[tnk1_curated.parquet](file:///d:/ML_Research/ml_research/ml_research/features/tnk1_curated.parquet)** / **[tnk1_curated.csv](file:///d:/ML_Research/ml_research/ml_research/features/tnk1_curated.csv)**:
+- **[tnk1_curated.parquet](tnk1_curated.parquet)** / **[tnk1_curated.csv](tnk1_curated.csv)**:
   - Curated, standardized via RDKit 6-step protocol (Stage 1.2).
   - Triplet deduplicated: `(InChIKey_block1, uniprot_id, assay_type)` $\to$ median $\text{pActivity} = 9 - \log_{10}(\text{Value}_{\text{nM}})$, $\sigma_{\text{rep}}$, and replicate range (Stage 1.3).
   - **380 unique (compound, assay_type) pairs** across **285 unique Bemis-Murcko scaffolds**:
     - **172 exact quantitative measurements** ($IC_{50}, K_i, K_d$ with relation `=`).
     - **208 right-censored weak negatives** ($c_{ik} = 1$, for Stage 3.4 asymmetric censored loss).
   - Tankyrase/PARP assay artifacts (312 records) cleanly excluded.
-- **[tnk1_nested_scaffold_splits_5x5.json](file:///d:/ML_Research/ml_research/ml_research/features/tnk1_nested_scaffold_splits_5x5.json)**:
+- **[tnk1_nested_scaffold_splits_5x5.json](tnk1_nested_scaffold_splits_5x5.json)**:
   - 5 outer test folds $\times$ 5 inner validation folds partitioned strictly by Murcko scaffolds (zero scaffold leakage).
   - Executed across the 5 deterministic seeds mandated in Step 0.2 (`[42, 101, 202, 303, 404]`).
 
 ---
 
 ## 2. Stage 2 Baseline Molecular Features (2248-dim)
-- **[tnk1_baseline_features_2248d.npz](file:///d:/ML_Research/ml_research/ml_research/features/tnk1_baseline_features_2248d.npz)**:
+- **[tnk1_baseline_features_2248d.npz](tnk1_baseline_features_2248d.npz)**:
   - `X_count_fp`: Shape `(380, 2048)` - 2048-bit Morgan Count Fingerprints ($r=2$, ECFP4) preserving substructure frequency.
   - `X_bit_fp`: Shape `(380, 2048)` - 2048-bit binary Morgan presence fingerprints.
   - `X_rdkit_2d_scaled`: Shape `(380, 200)` - 200 continuous RDKit 2D physicochemical descriptors standardized with `RobustScaler`.
@@ -34,7 +46,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 3. Stage 3.1 Directed Graph Featurization (D-MPNN)
-- **[tnk1_graph_dmpnn.pkl](file:///d:/ML_Research/ml_research/ml_research/features/tnk1_graph_dmpnn.pkl)**:
+- **[tnk1_graph_dmpnn.pkl](tnk1_graph_dmpnn.pkl)**:
   - 380 molecular graphs formatted for Chemprop v2 / PyTorch Geometric message passing.
   - **Atom feature vectors** $x_v \in \mathbb{R}^{133}$: One-hot atomic number, total degree (0–5), formal charge ($-2$ to $+2$), chiral tag, bonded hydrogens (0–4), hybridization ($sp, sp^2, sp^3, sp^{3d}, sp^{3d2}$), aromaticity, and scaled atomic mass.
   - **Directed bond feature vectors** $e_{vw} \in \mathbb{R}^{14}$: Bond type, conjugation flag, ring membership, and stereochemistry ($E, Z, cis, trans$).
@@ -43,7 +55,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 4. Stage 3.3 Kinome Multi-Task Transfer Learning Dataset
-- **[kinome_multitask_300k.parquet](file:///d:/ML_Research/ml_research/ml_research/features/kinome_multitask_300k.parquet)** (14.9 MB) / **[kinome_multitask_300k.csv](file:///d:/ML_Research/ml_research/ml_research/features/kinome_multitask_300k.csv)**:
+- **[kinome_multitask_300k.parquet](kinome_multitask_300k.parquet)** (14.9 MB) / **[kinome_multitask_300k.csv](kinome_multitask_300k.csv)**:
   - **425,906 compound–kinase pairs** curated across **292 human kinases** and **179,914 unique molecules**.
   - 277,713 exact measurements + 148,193 censored weak negatives.
   - Pre-computed Stage 3.4 sample importance weights $w_{ik}$ and composite similarity scores $S_k$.
@@ -51,7 +63,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 5. Stage 3.4 Kinome Pocket Alignment & Importance Weighting
-- **[kinome_similarity_scores.parquet](file:///d:/ML_Research/ml_research/ml_research/features/kinome_similarity_scores.parquet)** / **[kinome_similarity_scores.csv](file:///d:/ML_Research/ml_research/ml_research/features/kinome_similarity_scores.csv)**:
+- **[kinome_similarity_scores.parquet](kinome_similarity_scores.parquet)** / **[kinome_similarity_scores.csv](kinome_similarity_scores.csv)**:
   - 491 human kinases aligned against TNK1's canonical 85-residue KLIFS pocket:
     `ELLGSGCFGVVHRVAVKSLDFLREVSVMMNLEPHVLRLHGLQMVMELAPLGSLHARLTAYLGARGLVHRDLATRNLLLVADFGLV`
   - Sequence identity $\text{Sim}_{\text{KLIFS}}(k, \text{TNK1})$ and catalytic domain similarity $\text{Sim}_{\text{domain}}(k, \text{TNK1})$.
@@ -62,7 +74,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 6. Stage 5.1 Off-Target Selectivity Panel ($\mathcal{O}$)
-- **[offtargets_curated.parquet](file:///d:/ML_Research/ml_research/ml_research/features/offtargets_curated.parquet)** (4.2 MB) / **[offtargets_curated.csv](file:///d:/ML_Research/ml_research/ml_research/features/offtargets_curated.csv)**:
+- **[offtargets_curated.parquet](offtargets_curated.parquet)** (4.2 MB) / **[offtargets_curated.csv](offtargets_curated.csv)**:
   - **63,657 deduplicated compound–kinase pairs** across the 8 critical off-target kinases:
     - **TNK2 (ACK1)**: 1,350 pairs (1,296 unique compounds)
     - **SRC**: 6,524 pairs (6,181 unique compounds)
@@ -78,7 +90,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 7. Stage 5.2 Multi-Task ADMET Predictor Suite
-- **[admet_7endpoints.parquet](file:///d:/ML_Research/ml_research/ml_research/features/admet_7endpoints.parquet)** (2.5 MB) / **[admet_7endpoints.csv](file:///d:/ML_Research/ml_research/ml_research/features/admet_7endpoints.csv)**:
+- **[admet_7endpoints.parquet](admet_7endpoints.parquet)** (2.5 MB) / **[admet_7endpoints.csv](admet_7endpoints.csv)**:
   - **37,452 standardized molecules** across the 7 TDC benchmark endpoints:
     - `aqsol_logS`: 6,856 compounds (regression)
     - `caco2_logPapp`: 776 compounds (regression)
@@ -91,14 +103,14 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 8. Stage 5.3 & Page 10 Pipeline Code Infrastructure
-- **[standardizer.py](file:///d:/ML_Research/ml_research/ml_research/src/standardizer.py)**: Full 6-step chemical standardizer (LargestFragmentChooser, Normalizer, Reionizer, Uncharger, TautomerEnumerator, MedChem filter).
-- **[medchem_filters.py](file:///d:/ML_Research/ml_research/ml_research/src/medchem_filters.py)**: Evaluates QED, Ertl SA score, PAINS (A/B/C), Brenk, NIH, and Hinge-Binder SMARTS.
-- **[data_contract.py](file:///d:/ML_Research/ml_research/ml_research/src/data_contract.py)**: Team A $\leftrightarrow$ Team B interface contract validation and batch generator.
+- **[standardizer.py](../src/standardizer.py)**: Full 6-step chemical standardizer (LargestFragmentChooser, Normalizer, Reionizer, Uncharger, TautomerEnumerator, MedChem filter).
+- **[medchem_filters.py](../src/medchem_filters.py)**: Evaluates QED, Ertl SA score, PAINS (A/B/C), Brenk, NIH, and Hinge-Binder SMARTS.
+- **[data_contract.py](../src/data_contract.py)**: Team A $\leftrightarrow$ Team B interface contract validation and batch generator.
 
 ---
 
 ## 9. Full Kinome Measurements Dataset (All 39.55 Lakh Clean Assays)
-- **[kinome_all_measurements_3.95M.parquet](file:///d:/ML_Research/ml_research/ml_research/features/kinome_all_measurements_3.95M.parquet)** (185.5 MB) / **[kinome_all_measurements_summary.json](file:///d:/ML_Research/ml_research/ml_research/features/kinome_all_measurements_summary.json)**:
+- **[kinome_all_measurements_3.95M.parquet](kinome_all_measurements_3.95M.parquet)** (185.5 MB) / **[kinome_all_measurements_summary.json](kinome_all_measurements_summary.json)**:
   - **4,798,165 total clean bioactivity records** encompassing all cross-source deduplicated, human-target kinase measurements across ChEMBL, BindingDB, PubChem, and DTC:
     - **Exact dose-response**: 946,262 quantitative records ($IC_{50}, K_i, K_d$).
     - **Censored weak negatives**: 408,357 records ($IC_{50} \ge 10\,\mu\text{M}$ or $c_{ik} = 1$).
@@ -109,13 +121,13 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 10. Full Kinome Unique Molecules Feature Store (7.88 Lakh Compounds)
-- **[unique_molecules_788k.parquet](file:///d:/ML_Research/ml_research/ml_research/features/unique_molecules_788k.parquet)** (61.4 MB):
+- **[unique_molecules_788k.parquet](unique_molecules_788k.parquet)** (61.4 MB):
   - **787,283 standardized unique chemical structures** extracted from the kinome master database.
   - Columns: `inchikey14`, `canonical_smiles`, `inchikey`, `murcko_scaffold`, `qed`, `sa_score`, `has_alerts`, `has_hinge_motif`, `mol_weight`, `heavy_atom_count`.
-- **[unique_molecules_fingerprints_2048bit.npz](file:///d:/ML_Research/ml_research/ml_research/features/unique_molecules_fingerprints_2048bit.npz)** (42.6 MB):
+- **[unique_molecules_fingerprints_2048bit.npz](unique_molecules_fingerprints_2048bit.npz)** (42.6 MB):
   - `packed_fps_256bytes`: Shape `(787283, 256)` of type `uint8`.
   - Exactly 2048 bits per compound packed bitwise into 256 bytes (`np.packbits`), enabling lightning-fast kinome-wide Tanimoto similarity searching and diversity selection for Stage 7 RL generator experience replay.
-- **[unique_molecules_descriptors_200d.npz](file:///d:/ML_Research/ml_research/ml_research/features/unique_molecules_descriptors_200d.npz)** (236.7 MB):
+- **[unique_molecules_descriptors_200d.npz](unique_molecules_descriptors_200d.npz)** (236.7 MB):
   - `descriptors_200d`: Shape `(787283, 200)` of type `float32`.
   - 200 continuous RDKit 2D physicochemical descriptors computed for every unique kinome molecule.
   - `descriptor_names`: Array of 200 feature names.
@@ -123,20 +135,20 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](file:
 ---
 
 ## 11. Master File Manifest & SHA-256 Checksums
-Recorded in [manifest.json](file:///d:/ML_Research/ml_research/ml_research/features/manifest.json):
+Recorded in [manifest.json](manifest.json):
 
 | Asset File | Size | SHA-256 Checksum | Description |
 | :--- | :--- | :--- | :--- |
 | `tnk1_curated.parquet` | 57.7 KB | `e1de4cb2445d1f478bb33114b71d6fe94105a1923ed31fe1e8c232b0332c24ec` | 380 curated TNK1 compound-assay pairs |
 | `tnk1_nested_scaffold_splits_5x5.json` | 823.5 KB | `7ed825f357dbc9d69ac91aac843984bde6862ce8864c587fbb97fc835781bf6b` | Frozen 5×5 nested scaffold splits (seeds 42, 101, 202, 303, 404) |
-| `tnk1_baseline_features_2248d.npz` | 694.2 KB | `275663144ac36479fbb2beee12ecb8d5a864947ef3a55ef3fa59508ba4324fec` | 2048 Count FP + 200 RDKit continuous + assay one-hot |
-| `tnk1_graph_dmpnn.pkl` | 8.32 MB | `65aaed21449ce8e69c11818fffa013ce9dc8e75294ea5bb97241fc3dd076b6b7` | Chemprop D-MPNN molecular graphs (133d atom, 14d bond) |
-| `kinome_similarity_scores.parquet` | 65.2 KB | `3b1aef654bbb0b76426ec09cf6e9ba9dcba93a8915b4974f179727ee2c85e252` | KLIFS 85-pocket alignment & sample weights for 491 kinases |
-| `offtargets_curated.parquet` | 4.08 MB | `54d441ffa41f589b33a598ebc31ba58d3493fb69b9148d447fdbbce4e107df62` | 63,657 pairs across 8 key off-target kinases |
-| `admet_7endpoints.parquet` | 2.47 MB | `5008dea536b424ba7750854c15372ca62c3b65287e07a3c31ea3a31c3fc37775` | 37,452 compounds across 7 TDC ADMET benchmarks |
-| `kinome_multitask_300k.parquet` | 14.25 MB | `55fa58097c2bca586027c9197dc343b6e828d15024cb5352654aa3fc6e80b2a9` | 425,906 compound-kinase pairs across 292 kinases |
-| `kinome_all_measurements_3.95M.parquet` | 185.52 MB | `16619257e8d7bf4753ba01fc63eb5c6bdf255979b008d32b509f6b92a4fb8f5b` | 4,798,165 full kinome bioactivity measurements |
-| `unique_molecules_788k.parquet` | 61.37 MB | `9391e01b8e7131572df6c5b05fa5f917208d13e3bdf8a216cb45f8f844f2d338` | 787,283 unique standardized kinome molecules & metadata |
-| `unique_molecules_fingerprints_2048bit.npz` | 42.58 MB | `cb71026e1ee7dba454746328ae476721da144be806dd0154bf565b9ea426b3bf` | (787283, 256) uint8 packed 2048-bit Morgan fingerprints |
-| `unique_molecules_descriptors_200d.npz` | 236.66 MB | `2f61735fe3cf24e4c27fcabcf0f9be3e32e541457f5c76db2e185fb84da8285d` | (787283, 200) float32 continuous RDKit 2D descriptors |
+| `tnk1_baseline_features_2248d.npz` | 694.2 KB | `275663144ac36479f21bcb0fd563e4d87ecd775f4ad17fd67f83bbf0a5e6dec7` | 2048 Count FP + 200 RDKit continuous + assay one-hot |
+| `tnk1_graph_dmpnn.pkl` | 8.32 MB | `65aaed21449ce8e6456e292a1e883144a075e9c4cb5e8bc31fc6337c87451913` | Chemprop D-MPNN molecular graphs (133d atom, 14d bond) |
+| `kinome_similarity_scores.parquet` | 65.2 KB | `3b1aef654bbb0b763c215b493f450e469e94b9ee0c5b6b02fcc80b80080852b7` | KLIFS 85-pocket alignment & sample weights for 491 kinases |
+| `offtargets_curated.parquet` | 4.08 MB | `54d441ffa41f589b22f42ba0672934a0def09f318bbf947f3605e1530c9bc254` | 63,657 pairs across 8 key off-target kinases |
+| `admet_7endpoints.parquet` | 2.47 MB | `5008dea536b424baa7c01a50d3db486314aec9b0d51d2d743fc7f36bb9350a41` | 37,452 compounds across 7 TDC ADMET benchmarks |
+| `kinome_multitask_300k.parquet` | 14.25 MB | `55fa58097c2bca58612f62055c1682f3cd9307478a64f4b8aa80229346189610` | 425,906 compound-kinase pairs across 292 kinases |
+| `kinome_all_measurements_3.95M.parquet` | 185.52 MB | `16619257e8d7bf4774d2ee59f227323b7f5a7eff3c7a9bf4cde87ddda37549c7` | 4,798,165 full kinome bioactivity measurements |
+| `unique_molecules_788k.parquet` | 61.37 MB | `9391e01b8e713157ade34b7218fba28e6d2f2ce8024149a2d4fa0d7aabb13dfd` | 787,283 unique standardized kinome molecules & metadata |
+| `unique_molecules_fingerprints_2048bit.npz` | 42.58 MB | `cb71026e1ee7dba45b2c8c13ba267b85139154bb75f4cf4e3b2dd568d9da7e3a` | (787283, 256) uint8 packed 2048-bit Morgan fingerprints |
+| `unique_molecules_descriptors_200d.npz` | 236.66 MB | `2f61735fe3cf24e4d48c3e2d9449165c048a6656d2e34257b0a57a66c6eb641b` | (787283, 200) float32 continuous RDKit 2D descriptors |
 

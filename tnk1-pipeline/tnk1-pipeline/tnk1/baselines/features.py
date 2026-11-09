@@ -22,14 +22,28 @@ def rdkit_descriptors(smiles, n=200) -> np.ndarray:
     from rdkit.Chem import Descriptors
     fns = [f for _, f in Descriptors._descList][:n]
     out = np.full((len(smiles), len(fns)), np.nan, dtype=np.float64)
+    n_bad_mols = 0
     for i, s in enumerate(smiles):
         m = Chem.MolFromSmiles(s)
+        if m is None:
+            # row stays all-NaN; DescriptorScaler imputes to the train-fold median, which
+            # is a neutral value (NOT an optimistic one), so this is safe -- but it must
+            # be visible rather than indistinguishable from a molecule that parsed.
+            n_bad_mols += 1
+            continue
         for j, f in enumerate(fns):
             try:
-                out[i, j] = f(m)
-            except Exception:
+                out[i, j] = f(m)      # individual descriptors legitimately fail on some
+            except Exception:         # valences/elements; NaN -> median-imputed downstream
                 pass
     out[~np.isfinite(out)] = np.nan
+    if n_bad_mols:
+        import warnings
+        warnings.warn(
+            f"rdkit_descriptors: {n_bad_mols}/{len(smiles)} SMILES failed to parse; "
+            f"their descriptor rows are all-NaN and will be median-imputed",
+            RuntimeWarning, stacklevel=2,
+        )
     return out
 
 

@@ -10,6 +10,15 @@
 
 ---
 
+> **Engineering status (2026-11-09).** A full pipeline audit found and fixed sixteen
+> defects, nine of which shared one root cause: the pipeline **failed open**, substituting
+> best-possible scores for missing models, absent data stores and failed registry queries.
+> The Cycle-01 results reported below are unaffected (all inputs were present for that
+> run), but three items are outstanding before further claims are made — a novelty
+> re-audit, one compound's hERG exceedance, and two reward-design decisions. Full register,
+> rationale and prioritised next actions:
+> **[`PIPELINE_AUDIT.md`](PIPELINE_AUDIT.md)**.
+
 ## Table of Contents
 1. [Executive Summary & Core Deliverables](#1-executive-summary--core-deliverables)
 2. [Biological Target Overview: TNK1 Kinase](#2-biological-target-overview-tnk1-kinase)
@@ -443,23 +452,43 @@ conda create -n tnk1 python=3.10 -y
 conda activate tnk1
 
 # Install dependencies
+# core: numpy-only modules and the hermetic test suite
 pip install -r tnk1-pipeline/tnk1-pipeline/requirements-core.txt
-pip install rdkit meeko gemmi pytest
+# chemistry + deep learning: required by every generative, scoring and docking stage
+pip install -r tnk1-pipeline/tnk1-pipeline/requirements-chem.txt
 ```
 
-#### 2. Execute Test Suite
+#### 2. Restore and Verify the Feature Store
+The twelve precomputed stores (~280 MB) are gitignored; a fresh clone has eleven absent.
+Every stage after Stage 1 depends on them.
+```bash
+export TNK1_FEATURES_DIR=/path/to/ml_research/features   # optional if at the repo layout
+cd tnk1-pipeline/tnk1-pipeline && make verify-features
+# sha256 of every file vs ml_research/features/manifest.json; exit 0 iff corrupt=0 absent=0
+```
+
+#### 3. Execute Test Suite
 ```bash
 pytest tnk1-pipeline/tnk1-pipeline/tests/
-# Expected: 21 passed in ~18 seconds
+# Expected: 61 passed, 2 deselected (the live-registry tests) in ~3 seconds
+
+pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
+# Expected: 2 passed — opt-in PubChem / UniChem checks
 ```
 
-#### 3. Run Worldwide Novelty Audit
+#### 4. Run Worldwide Novelty Audit
 ```bash
 python scripts/check_novelty_external.py
-# Queries PubChem PUG REST, UniChem 2.0 (38 DBs), and 788k kinome store
+# Queries PubChem PUG REST, UniChem 2.0 (38 DBs), and the 788k kinome store
 ```
+Since the 2026-11-09 audit the verifier is **fail-closed**: it emits a per-compound
+`novelty_reason` and marks a row `INCONCLUSIVE` when any level could not be checked
+(store unavailable, registry unreachable, similarity scan impossible). Accept a novelty
+claim only for rows with `novelty_fully_checked = True`; a `0/40` count computed over
+inconclusive rows is not a result. See
+[`PIPELINE_AUDIT.md`](PIPELINE_AUDIT.md) §1.
 
-#### 4. Run Molecular Docking Campaign & Controls
+#### 5. Run Molecular Docking Campaign & Controls
 ```bash
 # Dock 40 novel contract candidates
 python scripts/dock_40_molecules_tnk1.py
