@@ -22,20 +22,64 @@ def _catalog():
     return _CAT
 
 
+_SASCORER = None
+
+
+def _sascorer():
+    """Import RDKit's contrib SA_Score once.
+
+    `sys.path.append(...)` used to run on *every* call, so scoring a 50k-molecule pool grew
+    sys.path by 50k duplicate entries and slowed every subsequent import in the process.
+    """
+    global _SASCORER
+    if _SASCORER is None:
+        from rdkit.Chem import RDConfig
+        p = os.path.join(RDConfig.RDContribDir, "SA_Score")
+        if p not in sys.path:
+            sys.path.append(p)
+        import sascorer
+        _SASCORER = sascorer
+    return _SASCORER
+
+
 def sa_score(mol) -> float:
-    from rdkit.Chem import RDConfig
-    sys.path.append(os.path.join(RDConfig.RDContribDir, "SA_Score"))
-    import sascorer
-    return float(sascorer.calculateScore(mol))
+    return float(_sascorer().calculateScore(mol))
 
 
 def alerts(mol) -> list[str]:
     return [e.GetDescription() for e in _catalog().GetMatches(mol)]
 
 
+_HINGE_PATTERNS = None
+
+
+def _hinge_patterns():
+    """Compile the hinge SMARTS once instead of once per molecule.
+
+    `hinge_match` previously called MolFromSmarts on all six patterns for every molecule --
+    300k compilations over a 50k pool -- and silently treated an unparseable SMARTS as a
+    non-match. Bad patterns now fail loudly at first use.
+    """
+    global _HINGE_PATTERNS
+    if _HINGE_PATTERNS is None:
+        from rdkit import Chem
+        pats = {}
+        for name, smarts in HINGE_SMARTS.items():
+            q = Chem.MolFromSmarts(smarts)
+            if q is None:
+                raise ValueError(f"HINGE_SMARTS[{name!r}] is not a valid SMARTS: {smarts!r}")
+            pats[name] = q
+        _HINGE_PATTERNS = pats
+    return _HINGE_PATTERNS
+
+
 def hinge_match(mol) -> bool:
-    from rdkit import Chem
-    return any(mol.HasSubstructMatch(Chem.MolFromSmarts(s)) for s in HINGE_SMARTS.values())
+    return any(mol.HasSubstructMatch(q) for q in _hinge_patterns().values())
+
+
+def hinge_matches(mol) -> list[str]:
+    """Which hinge motifs matched -- useful for the contract's provenance columns."""
+    return [n for n, q in _hinge_patterns().items() if mol.HasSubstructMatch(q)]
 
 
 def medchem_profile(smiles: str) -> dict | None:

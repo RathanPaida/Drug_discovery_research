@@ -11,12 +11,29 @@ def to_pactivity(value_nM):
     return 9.0 - np.log10(np.asarray(value_nM, dtype=float))
 
 
-def prepare_records(df: pd.DataFrame, tau: float = 5.0) -> pd.DataFrame:
-    """Input columns: inchikey_block1, smiles, scaffold, uniprot_id, standard_type, value_nM, relation, source.
-    '=' -> exact; '>'/'>=' -> right-censored (true pActivity < bound); '<' records are dropped
-    (left-censored potent values are not modelled by the manual's loss)."""
+def prepare_records(df: pd.DataFrame) -> pd.DataFrame:
+    """Input columns: inchikey_block1, smiles, scaffold, uniprot_id, standard_type, value_nM, source,
+    and optionally relation. '=' (or a missing/blank relation) -> exact; '>'/'>=' -> censored, meaning
+    the true pActivity lies BELOW the recorded bound; '<' records are dropped (left-censored potent
+    values are not modelled by the manual's loss).
+
+    Each censored row keeps its OWN bound, derived from its value_nM -- a ">1 uM" record bounds
+    pActivity at 6, a ">100 uM" record at 4. There is deliberately no global tau here: the previous
+    signature accepted `tau` and never used it (`run_stage1_data.py` passed `cfg.data.censor_tau`
+    expecting an effect). `censor_tau` applies to newly assayed active-learning rows, where the
+    protocol has a single threshold -- see `tnk1.active_learning.ingest.to_training_rows`.
+    """
     d = df.copy()
-    d["relation"] = d.get("relation", "=").fillna("=").replace({"": "="})
+    # `df.get("relation", "=")` returns the *scalar* "=" when the column is absent, and the
+    # following .fillna() then raised AttributeError on a str. The PKIS and KINOMEscan inputs
+    # declared in configs/default.yaml have no `relation` column, so this crashed on exactly
+    # the datasets it was meant to accept.
+    if "relation" in d.columns:
+        rel = d["relation"].astype("object").where(d["relation"].notna(), "=")
+        rel = rel.replace({"": "=", None: "="})
+    else:
+        rel = pd.Series("=", index=d.index, dtype="object")
+    d["relation"] = rel
     d = d[d["value_nM"] > 0]
     d = d[~d["relation"].isin(["<", "<=", "<<"])]
     d["censored"] = d["relation"].isin([">", ">=", ">>"]).astype(int)

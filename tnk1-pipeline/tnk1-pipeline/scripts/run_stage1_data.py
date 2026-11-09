@@ -77,7 +77,9 @@ def main():
             raw[col + "_std" if col == "smiles" else col] = raw.smiles.map(lambda s, c=col: ok[s][c])
         raw["smiles"] = raw["smiles_std"]; raw = raw.drop(columns="smiles_std")
 
-        rec = activity.prepare_records(raw, d["censor_tau"])
+        # censored rows keep their own per-row bound from value_nM; cfg.data.censor_tau applies
+        # to newly assayed active-learning rows (ingest.to_training_rows), not to this ingest.
+        rec = activity.prepare_records(raw)
         final = activity.aggregate_replicates(rec, d["replicate_range_max"], d["replicate_policy"])
         final = final.merge(kin[["uniprot_id", "gene_name"]], on="uniprot_id", how="left")
     else:

@@ -5,7 +5,7 @@
 `scripts/`, `ml_research/src/`, config, test suite, dependency declarations and the
 provenance documentation.
 **Baseline commit:** `d48de23`
-**Outcome:** 22 defects found; all remediated. Two require a PI decision and three block
+**Outcome:** 29 defects found; all remediated. Two require a PI decision and three block
 further scientific claims (§5, §6). Test suite 21 → 63 tests.
 
 > **Three findings need attention beyond the code**, because they touch what has been
@@ -98,6 +98,13 @@ reachable path · **S3** correctness/robustness/hygiene.
 | 20 | S3 | `ml_research/src/generate_pdf_report.py` | Second output path hardcoded to `C:/Users/paida/.gemini/antigravity-ide/brain/<uuid>/…` — another machine's IDE scratch directory | **Fixed** — `$TNK1_REPORT_EXTRA_PATH`, optional |
 | 21 | S3 | `scripts/run_stage0_check.py` | Missing the `sys.path` bootstrap every other stage script has, so `python scripts/run_stage0_check.py` died on `import tnk1` unless the package was pip-installed | **Fixed** |
 | 22 | S3 | `tnk1/models/data.py`, `tnk1/baselines/features.py` | `except Exception: pass` hid a dropped 787k-row descriptor cache and unparseable SMILES. Not fail-open (median imputation is neutral, and misses are recomputed) but invisible | **Fixed** — `RuntimeWarning` |
+| 23 | S2 | `tnk1/data/activity.py` | **`prepare_records` crashed on the PKIS/KINOMEscan inputs.** `df.get("relation", "=")` returns the *scalar* `"="` when the column is absent, and the following `.fillna()` raised `AttributeError: 'str' object has no attribute 'fillna'`. `configs/default.yaml` declares those files with columns `smiles,uniprot_id,value_nM,standard_type` — no `relation` — so ingest failed on exactly the datasets the branch existed to support | **Fixed** |
+| 24 | S2 | `tnk1/data/activity.py` | `prepare_records(df, tau)` accepted `tau` and never read it, while `run_stage1_data.py:80` passed `cfg.data.censor_tau` expecting an effect (same class as #7) | **Fixed** — dead parameter removed, caller updated |
+| 25 | S2 | `tnk1/models/losses.py` | `compute_finetune_loss` defaulted to `tau=5.0`, which **replaces every censored row's own bound with one constant** — a `>1 uM` bound (6) and a `>100 uM` bound (4) both collapse to 5.0, over-penalising one and under-penalising the other | **Fixed** — defaults to `None`, matching `trainer.py` |
+| 26 | S2 | `tnk1/models/losses.py` | `task_loss` returned `mu.new_zeros(())` for a batch with neither an exact nor a censored term — **detached from the autograd graph**, so `loss.backward()` raised *"element 0 of tensors does not require grad"* | **Fixed** — `mu.sum() * 0` keeps the graph |
+| 27 | S3 | `tnk1/admet/filters.py` | `hinge_match` called `MolFromSmarts` on all six patterns for **every molecule** — ~300k recompilations over a 50k pool — and silently treated an unparseable SMARTS as a non-match | **Fixed** — compiled once, invalid SMARTS now raise |
+| 28 | S3 | `tnk1/admet/filters.py` | `sa_score` ran `sys.path.append(...)` on **every call**, so scoring a 50k pool appended 50k duplicate entries and slowed every later import in the process | **Fixed** — imported once |
+| 29 | S3 | `tests/` | A module-level `importorskip` skipped the *whole* file, so a core-only install lost the pure-numpy tests sitting beside the gated ones (53 of 173 ran). Split by dependency: **141 now run** | **Fixed** |
 
 ### 2.1 Fabricated checksums in the provenance documentation
 
@@ -160,7 +167,33 @@ New modules:
   definition of the `adme` and `safety` reward terms, now shared by the online scorer and
   both offline scripts, so they cannot drift apart again.
 
-Test suite: **21 → 63 tests** (61 hermetic + 2 network-gated), all passing.
+Test suite: **21 → 175 tests** (173 hermetic + 2 network-gated), all passing. Coverage of
+the pure-logic modules that decide scientific outcomes is now 92–100%:
+
+| Module | Coverage | What it governs |
+| :--- | :---: | :--- |
+| `data/splits.py` | **100%** | scaffold splits and the train/test leakage guards |
+| `data/activity.py` | **100%** | pActivity scale, censoring, replicate aggregation |
+| `rl/reward.py` | **100%** | the multi-objective reward and hard gate |
+| `active_learning/acquisition.py` | **100%** | EI / UCB / LCB and Pareto ranking |
+| `evaluation/stats.py` | **100%** | Clopper–Pearson, Fisher, Holm, bootstrap |
+| `models/weighting.py` | **100%** | kinome sample weights |
+| `uq/metrics.py` | **100%** | RMSE / ρ / coverage / ECE |
+| `admet/filters.py` | 98% | QED, SA, PAINS/Brenk/NIH alerts, hinge SMARTS |
+| `models/losses.py` | 97% | censored hinge, heteroscedastic NLL, L2-SP |
+| `uq/calibration.py` | 97% | temperature scaling + split conformal |
+| `uq/applicability.py` | 96% | dual-space applicability domain |
+| `selectivity/selectivity.py` | 93% | ensemble-propagated selectivity margins |
+| `uq/decomposition.py` | 92% | aleatoric/epistemic variance split |
+
+What remains uncovered is the torch model code (D-MPNN, trunk, trainer, ensemble), ChEMBL
+extraction and the network half of the verifier — all of which genuinely need the data
+store, a GPU or live registries.
+
+Continuous integration (`.github/workflows/tests.yml`) runs the hermetic suite on Python
+3.10 and 3.12 plus Stage-0 preflight on every push and PR, a **core-only job** that proves
+`requirements-core.txt` alone is a working configuration, and the two live-registry tests
+on a weekly schedule where an outage cannot block a merge.
 
 ```
 $ python -m pytest -q            # from repo root or package root
@@ -195,6 +228,17 @@ Two things a reader of §2 might expect, and the reasons they were left alone.
   was a buggy unused duplicate; it has been corrected so a future caller is not bitten.
 - Defect #7 (`split`) only diverges for `split ≠ 0.5`, which nothing passes; `split=0.5` is
   floor-divided exactly as before and is covered by a bit-identity test.
+- Defects #25 and #26 are on paths never taken: `compute_finetune_loss` is called nowhere
+  (`trainer.py` calls `task_loss` directly with `tau=None`, which was always correct), and
+  the detached-zero loss needs a batch with neither an exact nor a censored row.
+- Defect #23 (`prepare_records` crashing without a `relation` column) is reachable only
+  from `run_stage1_data.py`. The published 4.80M-measurement store was **not** built by
+  that path: `ml_research/src/build_full_kinome_measurements.py` does its own censoring
+  (`relation.fillna('=')` on a real column, which works), and its summary records
+  858,491 single-point and 2,365,725 qualitative screen records — so the PKIS/KINOMEscan
+  data did reach the store. Cycle 01 is therefore unaffected, but see OPEN-4.
+- Defects #27/#28 change only speed, not values; all six hinge SMARTS are valid, so the
+  silently-swallowed parse failure never fired.
 - Defect #8 (small-`n` conformal) did not bite Cycle 01: with `N=45` TNK1 points the
   calibration half holds `n=23 ≥ 9`, so `q̂ = 1.743` is a valid 90% quantile.
 
@@ -227,6 +271,15 @@ synthesis list.
 **OPEN-2 — floor vs. veto in `aggregate`.** Enable `rl.veto = {safety: 0.05, sa: 0.05}` so
 a failed safety component actually zeroes the reward, rather than scaling it by 0.27? This
 changes every reward and so must be a Cycle-02 boundary, not a retrofit.
+
+**OPEN-4 — two independent censoring implementations.** `tnk1.data.activity.prepare_records`
+and `ml_research/src/build_full_kinome_measurements.py` each decide, separately, what counts
+as censored and what pActivity bound to record. The published store came from the second;
+Stage 1 uses the first. That is the same duplication that let defect #6 drift the hERG gate
+between two scoring paths, and it means the frozen Stage-1 table and the feature store could
+disagree about a record's censoring without anything noticing. Decide which is canonical and
+have the other call it. Not fixed blind here: collapsing them changes which records enter
+training, and the two differ in scope (one handles single-point screens, the other does not).
 
 **OPEN-3 — re-run the novelty audit under the fail-closed verifier.** The verdicts in
 `runs/cycle_01/novelty_verification_results.csv` were produced by the old code, which could

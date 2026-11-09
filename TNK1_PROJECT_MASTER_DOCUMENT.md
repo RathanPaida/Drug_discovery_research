@@ -10,7 +10,7 @@
 
 ---
 
-> **Engineering status (2026-11-09).** A full pipeline audit found and fixed sixteen
+> **Engineering status (2026-11-09).** A full pipeline audit found and fixed twenty-nine
 > defects, nine of which shared one root cause: the pipeline **failed open**, substituting
 > best-possible scores for missing models, absent data stores and failed registry queries.
 > The Cycle-01 results reported below are unaffected (all inputs were present for that
@@ -470,7 +470,7 @@ cd tnk1-pipeline/tnk1-pipeline && make verify-features
 #### 3. Execute Test Suite
 ```bash
 pytest tnk1-pipeline/tnk1-pipeline/tests/
-# Expected: 61 passed, 2 deselected (the live-registry tests) in ~3 seconds
+# Expected: 173 passed, 2 deselected (the live-registry tests) in ~17 seconds
 
 pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
 # Expected: 2 passed — opt-in PubChem / UniChem checks

@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
 [![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
-[![Tests](https://img.shields.io/badge/pytest-63%20passed-success.svg)](tnk1-pipeline/tnk1-pipeline/tests/)
+[![Tests](https://img.shields.io/badge/pytest-175%20passed-success.svg)](tnk1-pipeline/tnk1-pipeline/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
@@ -132,7 +132,7 @@ export TNK1_FEATURES_DIR=/path/to/ml_research/features
 ### 2. Run Test Suite
 ```bash
 pytest tnk1-pipeline/tnk1-pipeline/tests/
-# 61 hermetic tests pass; 2 live-registry tests are deselected by default
+# 173 hermetic tests pass; 2 live-registry tests are deselected by default
 
 pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
 # the 2 opt-in PubChem / UniChem checks

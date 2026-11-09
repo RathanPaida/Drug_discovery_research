@@ -5,12 +5,22 @@ import torch.nn.functional as F
 
 def task_loss(mu, logvar, y, cens, w=None, mode="huber", tau=None, delta=1.0, cens_weight=0.5):
     """Exact rows (cens==0): Huber (mode='huber') or Gaussian NLL (mode='nll').
-    Right-censored rows (cens==1, e.g. IC50>10uM => true pAct < y_bound): penalise only max(0, mu - bound)^2.
-    `y` for censored rows already holds the bound (tau=5.0 for >10 uM). Per-sample weights `w` (similarity,
-    majority cap, in-house x3.0) multiply each term."""
+    Censored rows (cens==1, e.g. IC50>10uM => true pAct < bound): penalise only max(0, mu - bound)^2.
+    `y` for censored rows already holds that row's bound. Per-sample weights `w` (similarity,
+    majority cap, in-house x3.0) multiply each term.
+
+    `tau` is an OVERRIDE, not a default: it replaces every censored row's own bound with the single
+    constant `tau`. Leave it None (as `trainer.py` does) whenever the rows carry real per-row bounds
+    -- a ">1 uM" record bounds pActivity at 6 and a ">100 uM" record at 4, and collapsing both to
+    5.0 both over- and under-penalises. Pass it only for a dataset with one global threshold.
+    """
     w = torch.ones_like(mu) if w is None else w
     ex, ce = cens == 0, cens == 1
-    loss = mu.new_zeros(())
+    # `mu.sum() * 0`, not `mu.new_zeros(())`: the latter is detached from the autograd graph,
+    # so a batch contributing neither an exact nor a censored term returned a loss with
+    # requires_grad=False and `loss.backward()` raised "does not require grad". This keeps the
+    # value at exactly zero while staying connected to mu.
+    loss = mu.sum() * 0
     if ex.any():
         if mode == "nll":
             per = 0.5 * torch.exp(-logvar[ex]) * (y[ex] - mu[ex]) ** 2 + 0.5 * logvar[ex]
@@ -47,6 +57,8 @@ def l2sp(model, ref_state, alpha_enc, alpha_head):
     return tot
 
 
-def compute_finetune_loss(mu, logvar, y, cens, w, model, ref_state, cfg_ft, mode="nll", tau=5.0):
+def compute_finetune_loss(mu, logvar, y, cens, w, model, ref_state, cfg_ft, mode="nll", tau=None):
+    """`tau` now defaults to None, matching `trainer.py`: censored rows keep their own bounds.
+    It previously defaulted to 5.0, which silently discarded every per-row censor bound."""
     return task_loss(mu, logvar, y, cens, w, mode, tau=tau, cens_weight=0.5) + l2sp(
         model, ref_state, cfg_ft["alpha_enc"], cfg_ft["alpha_head"])

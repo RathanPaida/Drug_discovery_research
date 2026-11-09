@@ -1,0 +1,86 @@
+name: tests
+
+# The hermetic suite only -- no feature store, no GPU, no network. The two live-registry
+# tests (PubChem / UniChem) are deselected by pytest.ini's `-m "not network"` and run on a
+# schedule instead, so a registry outage can never fail a PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"      # Mondays 05:00 UTC: include the live registry checks
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: tnk1-pipeline/tnk1-pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install core + chemistry dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+          # rdkit and torch (CPU) gate the chemistry and loss tests; without them those
+          # modules skip cleanly rather than failing collection.
+          pip install rdkit
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install pytest-cov
+
+      - name: Run hermetic test suite
+        run: python -m pytest -q --cov=tnk1 --cov-report=term-missing
+
+      - name: Stage 0 preflight
+        # Expected to report 0/6 stages ready in CI: the feature store is gitignored.
+        # Must still exit 0 -- a non-zero exit means the environment itself is broken.
+        run: python scripts/run_stage0_check.py
+
+  core-only:
+    # Proves `pip install -r requirements-core.txt` alone is a working configuration:
+    # the RDKit/torch-dependent tests must SKIP, not fail collection.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tnk1-pipeline/tnk1-pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+      - run: python -m pytest -q
+
+  registries:
+    # Live PubChem + UniChem. Scheduled only, and never required for a merge: these assert
+    # that an absence is *verified*, and they skip themselves if a registry is unreachable.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: tnk1-pipeline/tnk1-pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+          pip install rdkit
+      - run: python -m pytest -q -m network
