@@ -1,7 +1,9 @@
 {
-  "timestamp": "2026-11-02 00:26:22",
+  "timestamp": "2026-11-10 00:51:20",
   "target": "TNK1 (Q13470)",
   "total_compounds_checked": 40,
+  "novelty_fully_checked": 40,
+  "inconclusive_checks": 0,
   "local_exact_matches": 0,
   "local_skeletal_matches": 0,
   "pubchem_matches": 0,
@@ -9,7 +11,7 @@
   "close_analogs_ge_085": 0,
   "globally_novel_compounds": 40,
   "percent_novel": 100.0,
-  "mean_max_tanimoto": 0.400075,
+  "mean_max_tanimoto": 0.40527500000000005,
   "peak_max_tanimoto": 0.542,
   "all_compounds_novel": true
 }

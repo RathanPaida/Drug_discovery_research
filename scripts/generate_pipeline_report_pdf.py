@@ -62,7 +62,7 @@ def build_pdf(report_path=None):
     # was a hardcoded d:/ path; resolve relative to the checkout instead
     report_path = Path(report_path) if report_path else REPO_ROOT / "TNK1_Pipeline_Results_Report.pdf"
     doc = SimpleDocTemplate(
-        report_path,
+        str(report_path),
         pagesize=letter,
         leftMargin=36,
         rightMargin=36,
