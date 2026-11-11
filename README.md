@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
 [![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
-[![Tests](https://img.shields.io/badge/pytest-175%20passed-success.svg)](tnk1-pipeline/tnk1-pipeline/tests/)
+[![Tests](https://img.shields.io/badge/pytest-175%20passed-success.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
@@ -41,7 +41,7 @@ actions — please see:
 ## 🔬 Key Project Deliverables
 
 - **Cycle 1 Wet-Lab Priority Contract (40 Novel Small Molecules):**
-  - Path: [`tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv)
+  - Path: [`runs/cycle_01/contract_novel_team_b.csv`](runs/cycle_01/contract_novel_team_b.csv)
   - 16 Exploitation leads (sub-85 nM predicted potency, 75.0% hinge coordination)
   - 12 Exploration compounds ($\sigma_{\text{epi}} \in [0.15, 0.20]$ for active learning entropy reduction)
   - 8 Novel Scaffold centroids (scaffold-hopping diversity)
@@ -56,7 +56,7 @@ actions — please see:
   - Mean binding affinity $\Delta G = -7.32 \pm 1.44\text{ kcal/mol}$ (peak $-9.37\text{ kcal/mol}$)
   - 60.0% overall hinge contact rate ($\le 3.5\text{ \AA}$), reaching **75.0% in EXPLOIT leads**
   - Benchmarked against clinical controls on the identical pocket: **TP-0903** ($-9.40\text{ kcal/mol}$), **Dasatinib** ($-8.37\text{ kcal/mol}$), **Bosutinib** ($-8.26\text{ kcal/mol}$)
-  - Docked 3D poses: [`tnk1-pipeline/tnk1-pipeline/runs/cycle_01/docking_poses/`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/docking_poses/)
+  - Docked 3D poses: [`runs/cycle_01/docking_poses/`](runs/cycle_01/docking_poses/)
 
 ---
 
@@ -120,25 +120,25 @@ conda create -n tnk1 python=3.10 -y
 conda activate tnk1
 
 # core: numpy-only modules + the hermetic test suite
-pip install -r tnk1-pipeline/tnk1-pipeline/requirements-core.txt
+pip install -r requirements-core.txt
 
 # chemistry + deep learning: required for every generative, scoring and docking stage
-pip install -r tnk1-pipeline/tnk1-pipeline/requirements-chem.txt
+pip install -r requirements-chem.txt
 
-# point the pipeline at the feature store (optional if it sits at ml_research/features)
-export TNK1_FEATURES_DIR=/path/to/ml_research/features
+# point the pipeline at the feature store (optional if it sits at data/features)
+export TNK1_FEATURES_DIR=data/features
 ```
 
 ### 2. Run Test Suite
 ```bash
-pytest tnk1-pipeline/tnk1-pipeline/tests/
+pytest
 # 173 hermetic tests pass; 2 live-registry tests are deselected by default
 
-pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
+pytest -m network
 # the 2 opt-in PubChem / UniChem checks
 
-cd tnk1-pipeline/tnk1-pipeline && make verify-features
-# sha256 the feature store against ml_research/features/manifest.json
+make verify-features
+# sha256 the feature store against data/features/manifest.json
 ```
 
 Installing only `requirements-core.txt` is supported — the RDKit-dependent tests skip

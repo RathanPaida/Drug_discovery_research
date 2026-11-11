@@ -7,7 +7,7 @@ All datasets are locked with SHA-256 checksums recorded in [manifest.json](manif
 **Verify them before quoting any result that depends on them:**
 
 ```bash
-cd tnk1-pipeline/tnk1-pipeline && make verify-features
+make verify-features
 # or: python -m tnk1.utils.verify_features [filename ...]
 # exit 0 only if every manifest entry is present and its sha256 matches
 ```

@@ -15,7 +15,7 @@ ENV/
 .env
 
 # Large raw datasets, downloads, and caches (>15 GB)
-ml_research/tnk1_data/
+data/raw/tnk1_data/
 **/_work/
 *.sqlite
 *.sqlite3
@@ -24,25 +24,32 @@ ml_research/tnk1_data/
 *.tsv
 *.tab
 *.db
+*.csv.gz
 
 # Large precomputed feature stores (>25 MB)
-ml_research/features/*.parquet
-ml_research/features/*.npz
-ml_research/features/*.csv
-!ml_research/features/README.md
-!ml_research/features/manifest.json
-!ml_research/features/*summary*.json
-!ml_research/features/*metadata*.json
+data/features/*.parquet
+data/features/*.npz
+data/features/*.csv
+!data/features/README.md
+!data/features/manifest.json
+!data/features/*summary*.json
+!data/features/*metadata*.json
+!data/features/*splits*.json
 
 # Model weights & binary checkpoints
 *.pt
 *.pth
 *.pkl
 *.bin
-tnk1-pipeline/tnk1-pipeline/data/processed/
-!tnk1-pipeline/tnk1-pipeline/data/processed/prior/*.toml
-!tnk1-pipeline/tnk1-pipeline/data/raw/*.csv
-!tnk1-pipeline/tnk1-pipeline/data/raw/README.md
+data/processed/
+!data/processed/prior/*.toml
+!data/processed/splits_v1.json
+!data/raw/*.csv
+!data/raw/README.md
+
+# Structural models (AlphaFold & docking receptor)
+!data/structures/*.pdb
+!data/structures/*.pdbqt
 
 # OS specific
 .DS_Store
@@ -55,15 +62,13 @@ tools/
 
 # Standalone execution and runner script files (consolidated into TNK1_Master_Pipeline.ipynb)
 scripts/
-tnk1-pipeline/tnk1-pipeline/scripts/
-ml_research/src/
-ml_research/tnk1_harvest.py
 create_master_notebook.py
+reorganize_project.py
 
 # Logs and runtime outputs
 *.log
 **/*.log
-tnk1-pipeline/tnk1-pipeline/runs/*.log
+runs/*.log
 
 # Jupyter and testing checkpoints
 .ipynb_checkpoints/

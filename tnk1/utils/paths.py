@@ -32,8 +32,8 @@ _ENV_VAR = "TNK1_FEATURES_DIR"
 
 
 def repo_root() -> Path:
-    """The Rathan_ML_Research checkout root (…/tnk1-pipeline/tnk1-pipeline/tnk1/utils → up 4)."""
-    return Path(__file__).resolve().parents[4]
+    """The checkout root (.../tnk1/utils -> up 2)."""
+    return Path(__file__).resolve().parents[2]
 
 
 def features_dir(required: bool = False) -> Path:
@@ -46,9 +46,10 @@ def features_dir(required: bool = False) -> Path:
         return p
 
     candidates = [
-        repo_root() / "ml_research" / "features",
-        Path("ml_research/features"),
+        repo_root() / "data" / "features",
+        Path("data/features"),
         Path("features"),
+        repo_root() / "ml_research" / "features",
     ]
     for c in candidates:
         if c.exists():

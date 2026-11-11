@@ -1,9 +1,9 @@
 # Executive Briefing for Professor: TNK1 Closed-Loop AI Discovery Pipeline
 **Target:** Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)  
 **Status:** Closed-Loop Pharmacological Reinforcement Learning (RL) De Novo Discovery Executed on GPU  
-**Novel Candidate Database:** [rl_novel_candidates_pharmacology.csv](tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)  
-**100% Novel Wet-Lab Contract:** [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) / [contract_to_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)  
-**Worldwide External Novelty Audit:** [novelty_verification_results.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv) | [novelty_verification_summary.json](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
+**Novel Candidate Database:** [rl_novel_candidates_pharmacology.csv](runs/rl_novel_candidates_pharmacology.csv)  
+**100% Novel Wet-Lab Contract:** [contract_novel_team_b.csv](runs/cycle_01/contract_novel_team_b.csv) / [contract_to_team_b.csv](runs/cycle_01/contract_to_team_b.csv)  
+**Worldwide External Novelty Audit:** [novelty_verification_results.csv](runs/cycle_01/novelty_verification_results.csv) | [novelty_verification_summary.json](runs/cycle_01/novelty_verification_summary.json)
 
 ---
 
@@ -79,7 +79,7 @@ Every compound is profiled across **36 distinct pharmacological, safety, and pha
 
 ## 2. Active Learning Stratified 40-Compound Contract
 
-The 40 candidates in [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv) are stratified into 4 deliberate scientific cohorts:
+The 40 candidates in [contract_novel_team_b.csv](runs/cycle_01/contract_novel_team_b.csv) are stratified into 4 deliberate scientific cohorts:
 
 1. **Exploitation Slice (16 compounds, 40%):** Immediate lead drug candidates with sub-50 nM predicted potency ($\text{pIC}_{50} \in [7.01, 7.70]$), high selectivity, and confirmed hinge-binding motifs.
 2. **Exploration Slice (12 compounds, 30%):** Designed to probe areas of high epistemic uncertainty ($\sigma_{\text{epi}} \in [0.15, 0.28]$) in novel chemical space to rapidly expand model knowledge.
@@ -106,11 +106,11 @@ The 40 candidates in [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/run
 
 ## 4. Key Deliverable Files
 
-- **Official 100% Novel Contract (40 Cpds):** [contract_novel_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv)
-- **Active Team B Contract:** [contract_to_team_b.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_to_team_b.csv)
-- **Worldwide External Novelty Audit Results (40 Cpds):** [novelty_verification_results.csv](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_results.csv)
-- **Worldwide External Novelty Summary:** [novelty_verification_summary.json](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/novelty_verification_summary.json)
-- **Full Harvested Novel Candidate Pool (with 36 pharmacological features):** [rl_novel_candidates_pharmacology.csv](tnk1-pipeline/tnk1-pipeline/runs/rl_novel_candidates_pharmacology.csv)
+- **Official 100% Novel Contract (40 Cpds):** [contract_novel_team_b.csv](runs/cycle_01/contract_novel_team_b.csv)
+- **Active Team B Contract:** [contract_to_team_b.csv](runs/cycle_01/contract_to_team_b.csv)
+- **Worldwide External Novelty Audit Results (40 Cpds):** [novelty_verification_results.csv](runs/cycle_01/novelty_verification_results.csv)
+- **Worldwide External Novelty Summary:** [novelty_verification_summary.json](runs/cycle_01/novelty_verification_summary.json)
+- **Full Harvested Novel Candidate Pool (with 36 pharmacological features):** [rl_novel_candidates_pharmacology.csv](runs/rl_novel_candidates_pharmacology.csv)
 - **RL Generative Execution Engine:** [run_rl_novel_generation.py](scripts/run_rl_novel_generation.py)
 - **Worldwide External Novelty Verifier Script:** [check_novelty_external.py](scripts/check_novelty_external.py)
 - **Kinome 788k Tanimoto Similarity Scanner:** [scan_similarity_788k.py](scripts/scan_similarity_788k.py)

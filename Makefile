@@ -5,7 +5,7 @@ V ?= v1
 test:        ; python -m pytest -q
 # live PubChem / UniChem registry checks, deselected from the default run
 test-network: ; python -m pytest -q -m network
-# sha256 every feature-store file against ml_research/features/manifest.json
+# sha256 every feature-store file against data/features/manifest.json
 verify-features: ; python -m tnk1.utils.verify_features
 stage0:      ; python scripts/run_stage0_check.py
 stage1:      ; python scripts/run_stage1_data.py --version $(V)

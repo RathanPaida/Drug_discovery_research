@@ -30,8 +30,8 @@ def store(tmp_path):
 
 def test_repo_root_contains_the_checkout():
     root = paths.repo_root()
-    assert (root / "tnk1-pipeline").is_dir()
-    assert (root / "ml_research").is_dir()
+    assert (root / "tnk1").is_dir()
+    assert (root / "data").is_dir()
 
 
 def test_features_dir_resolves_inside_the_repo(monkeypatch):
