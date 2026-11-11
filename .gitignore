@@ -53,3 +53,19 @@ desktop.ini
 *.exe
 tools/
 
+# Standalone execution and runner script files (consolidated into TNK1_Master_Pipeline.ipynb)
+scripts/
+tnk1-pipeline/tnk1-pipeline/scripts/
+ml_research/src/
+ml_research/tnk1_harvest.py
+create_master_notebook.py
+
+# Logs and runtime outputs
+*.log
+**/*.log
+tnk1-pipeline/tnk1-pipeline/runs/*.log
+
+# Jupyter and testing checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+oof_tmp*
