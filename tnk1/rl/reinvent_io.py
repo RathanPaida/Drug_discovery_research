@@ -25,6 +25,29 @@ def make_prior_corpus(df: pd.DataFrame, S_by_kinase: dict, tnk1_uniprot: str, ex
     return {"train": str(out / "kinase_train.smi"), "val": str(out / "kinase_val.smi"), "n_unique": len(uniq)}
 
 
+def _toml_path(p) -> str:
+    """Render a filesystem path as a TOML *literal* string (single-quoted).
+
+    Windows paths are the reason this helper exists. TOML basic strings (double-quoted)
+    process backslash escapes, and only \\b \\t \\n \\f \\r \\" \\\\ \\uXXXX \\UXXXXXXXX are legal.
+    Interpolating a native Windows path into a basic string therefore either
+
+      * raises TOMLDecodeError  -- 'data\\processed' contains \\p, an invalid escape, and
+        'D:\\ML_Research' contains \\M; a spec-compliant parser (tomllib, tomli, which is
+        what REINVENT 4 uses) rejects the whole file; or
+      * silently corrupts the path -- '...\\tnk1\\rl\\...' turns \\t into a TAB and \\r into a
+        carriage return, so the run starts and then fails on a nonexistent file.
+
+    Both failure modes were live in the generated runs/rl/rl.toml. We normalise to forward
+    slashes (valid on Windows for every API Python and REINVENT use) *and* emit a literal
+    string, which performs no escape processing at all, so neither can recur.
+    """
+    s = Path(p).as_posix()
+    if "'" in s:                       # literal strings cannot contain a single quote
+        raise ValueError(f"path contains a single quote, which TOML literal strings cannot escape: {s!r}")
+    return f"'{s}'"
+
+
 def write_transfer_learning_toml(path, input_prior, smi_train, smi_val, output_prior, epochs=50, batch=100, cuda=True):
     Path(path).write_text(f'''run_type = "transfer_learning"
 use_cuda = {str(cuda).lower()}
@@ -34,10 +57,10 @@ num_epochs = {epochs}
 save_every_n_epochs = 5
 batch_size = {batch}
 sample_batch_size = 2000
-input_model_file = "{input_prior}"
-smiles_file = "{smi_train}"
-validation_smiles_file = "{smi_val}"
-output_model_file = "{output_prior}"
+input_model_file = {_toml_path(input_prior)}
+smiles_file = {_toml_path(smi_train)}
+validation_smiles_file = {_toml_path(smi_val)}
+output_model_file = {_toml_path(output_prior)}
 standardize_smiles = true
 randomize_smiles = true
 ''')
@@ -47,8 +70,8 @@ def write_sampling_toml(path, model_file, out_csv, n=10000, unique=True, randomi
     Path(path).write_text(f'''run_type = "sampling"
 use_cuda = true
 [parameters]
-model_file = "{model_file}"
-output_file = "{out_csv}"
+model_file = {_toml_path(model_file)}
+output_file = {_toml_path(out_csv)}
 num_smiles = {n}
 unique_molecules = {str(unique).lower()}
 randomize_smiles = {str(randomize).lower()}
@@ -57,6 +80,9 @@ randomize_smiles = {str(randomize).lower()}
 
 def write_rl_toml(path, cfg, prior, agent, client_python, client_script, server_url, out_prefix="tnk1_rl"):
     r = cfg["rl"]; d = r["diversity"]
+    # params.args is a single string REINVENT passes to the executable: the script path inside
+    # it must also be POSIX-normalised, and the whole thing goes in a literal string.
+    _args = f"{Path(client_script).as_posix()} --url {server_url}"
     Path(path).write_text(f'''run_type = "staged_learning"
 use_cuda = true
 tb_logdir = "tb_rl"
@@ -65,8 +91,8 @@ json_out_config = "_{out_prefix}.json"
 summary_csv_prefix = "{out_prefix}"
 use_checkpoint = false
 purge_memories = false
-prior_file = "{prior}"
-agent_file = "{agent}"
+prior_file = {_toml_path(prior)}
+agent_file = {_toml_path(agent)}
 batch_size = {r["batch_size"]}
 uniquify_smiles = true
 randomize_smiles = true
@@ -81,7 +107,7 @@ minscore = {d["min_score"]}
 minsimilarity = 0.4
 penalty_multiplier = 0.5
 [[stage]]
-chkpt_file = "{out_prefix}.chkpt"
+chkpt_file = '{out_prefix}.chkpt'
 termination = "simple"
 max_score = 1.1          # unreachable -> run exactly `steps` steps
 min_steps = {r["steps"]}
@@ -93,8 +119,8 @@ type = "geometric_mean"
 [[stage.scoring.component.ExternalProcess.endpoint]]
 name = "TNK1 LCB multi-objective reward"
 weight = 1
-params.executable = "{client_python}"
-params.args = "{client_script} --url {server_url}"
+params.executable = {_toml_path(client_python)}
+params.args = '{_args}'
 ''')
 
 

@@ -25,7 +25,13 @@ class Ctx:
         p = self.proc / "desc_scaler.pkl"
         if p.exists(): return pickle.loads(p.read_bytes())
         from .baselines.features import rdkit_descriptors, DescriptorScaler
-        smi = self.df.smiles.drop_duplicates().sample(min(50_000, self.df.smiles.nunique()), random_state=0)
+        # The scaler only needs enough molecules to estimate 200 robust quantiles, but the
+        # hardcoded 50k was an arbitrary ceiling. Driven by cfg so a full-data run can fit
+        # on every unique structure; set data.desc_scaler_n to 0 for "use all".
+        n_cap = self.cfg.get("data", {}).get("desc_scaler_n", 200_000)
+        n_uniq = self.df.smiles.nunique()
+        n = n_uniq if not n_cap else min(n_cap, n_uniq)
+        smi = self.df.smiles.drop_duplicates().sample(n, random_state=0)
         sc = DescriptorScaler().fit(rdkit_descriptors(list(smi), self.cfg["model"]["n_desc"]))
         p.write_bytes(pickle.dumps(sc)); return sc
 

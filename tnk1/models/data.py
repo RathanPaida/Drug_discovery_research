@@ -7,14 +7,38 @@ from .graph import mol_to_graph, collate_graphs
 from .dmpnn import to_torch
 from ..baselines.features import ASSAYS
 
-_CACHE: dict[str, dict] = {}
+# Molecular-graph cache.
+#
+# This was an unbounded dict. At ~425k training records over ~180k unique molecules that
+# was tolerable, but with data.full_kinome=true the table carries ~1.35M records over
+# several hundred thousand unique structures. A featurised graph is roughly 20 KB (N x 133
+# atom features plus directed bond features and index arrays), so an uncapped cache
+# reaches ~10 GB and OOMs a 16 GB machine partway through Stage 3 -- after hours of work.
+#
+# A bounded FIFO is the right trade here rather than an LRU: training shuffles over the
+# whole corpus every epoch, so the access pattern has no locality for an LRU to exploit
+# and any bounded policy degrades to the same hit rate. Recomputing a graph costs ~1 ms
+# against a GPU step measured in tens of ms, so misses are cheap.
+#
+# Tune with $TNK1_GRAPH_CACHE (entries; 0 disables the bound). 300k entries is ~6 GB.
+import os as _os
+from collections import OrderedDict as _OrderedDict
+
+_CACHE_MAX = int(_os.environ.get("TNK1_GRAPH_CACHE", "300000"))
+_CACHE: "_OrderedDict[str, dict]" = _OrderedDict()
 
 
 def get_graph(smi):
     g = _CACHE.get(smi)
     if g is None:
         g = _CACHE[smi] = mol_to_graph(smi)
+        if _CACHE_MAX and len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)          # evict oldest
     return g
+
+
+def cache_stats() -> dict:
+    return {"entries": len(_CACHE), "max": _CACHE_MAX or None}
 
 
 class DescStore:
@@ -33,14 +57,35 @@ class DescStore:
             if npz_candidate.exists() and parq_candidate.exists():
                 p_npz, p_parq = npz_candidate, parq_candidate
                 break
-        if p_npz and p_parq and p_npz.exists() and p_parq.exists():
+        # How much of the 787,283-row descriptor store to preload.
+        #   unset -> all of it (the historical behaviour, ~1 GB resident)
+        #   N     -> the first N rows only
+        #   0     -> nothing; every descriptor is computed on demand by get()
+        # The preloaded dict costs roughly 1.2 kB per molecule (a 200-float32 array plus
+        # numpy and dict overhead), so the full store is ~1 GB resident on top of a
+        # ~1.26 GB transient spike during construction. That is affordable at 16 GB and
+        # not at 8 GB -- see docs/RUNBOOK.md. A miss costs one RDKit descriptor
+        # calculation (~1-3 ms), so a small cache trades wall-clock, not correctness.
+        _dc = _os.environ.get("TNK1_DESC_CACHE")
+        max_entries = None if _dc in (None, "") else int(_dc)
+        if max_entries != 0 and p_npz and p_parq and p_npz.exists() and p_parq.exists():
             try:
                 import pandas as pd
                 df_mol = pd.read_parquet(p_parq, columns=["canonical_smiles"])
                 npz = np.load(p_npz)
                 desc = npz["descriptors_200d"]
-                scaled = self.scaler.transform(desc)
-                self.cache = dict(zip(df_mol.canonical_smiles, scaled))
+                keys = df_mol.canonical_smiles.values
+                if max_entries is not None:
+                    desc, keys = desc[:max_entries], keys[:max_entries]
+                # Transform in chunks. Doing it in one call holds the raw and the scaled
+                # matrices simultaneously -- 630 MB each at full size -- which is the
+                # single largest transient allocation in the pipeline.
+                step = 100_000
+                for i in range(0, len(desc), step):
+                    block = self.scaler.transform(desc[i:i + step])
+                    self.cache.update(zip(keys[i:i + step], block))
+                    del block
+                del desc, npz, df_mol, keys
             except Exception as e:
                 # Not fatal: `get()` recomputes any miss, so results are unchanged -- only
                 # slower. But warn instead of swallowing, so a silently-dropped 787k-row
@@ -54,11 +99,27 @@ class DescStore:
 
     def get(self, smiles):
         miss = [s for s in dict.fromkeys(smiles) if s not in self.cache]
-        if miss:
-            from ..baselines.features import rdkit_descriptors
-            X = self.scaler.transform(rdkit_descriptors(miss))
-            self.cache.update(zip(miss, X))
-        return np.stack([self.cache[s] for s in smiles])
+        if not miss:
+            return np.stack([self.cache[s] for s in smiles])
+        from ..baselines.features import rdkit_descriptors
+        local = dict(zip(miss, self.scaler.transform(rdkit_descriptors(miss))))
+
+        # Build the answer BEFORE touching the cache. Trimming first cannot help when a
+        # single call misses more rows than the ceiling (an empty cache has nothing to
+        # evict), and trimming after the update can evict a row this very call needs.
+        out = np.stack([self.cache[s] if s in self.cache else local[s] for s in smiles])
+
+        _dc = _os.environ.get("TNK1_DESC_CACHE")
+        cap = None if _dc in (None, "") else int(_dc)
+        if cap == 0:
+            return out                      # caching disabled: retain nothing
+        self.cache.update(local)
+        if cap is not None and len(self.cache) > cap:
+            # evict in insertion order: training shuffles the corpus, so there is no
+            # locality for a smarter policy to exploit (same reasoning as _CACHE above)
+            for k in list(self.cache)[:len(self.cache) - cap]:
+                self.cache.pop(k, None)
+        return out
 
 
 class LabelledSet(Dataset):

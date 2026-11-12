@@ -20,6 +20,14 @@ data:
   dkk_csv: data/raw/dkk_tnk1_curated.csv        # manual TNK1 curation (TP-0903, dasatinib, bosutinib ...)
   kinase_table: data/raw/kinases.csv            # uniprot_id,gene_name,domain_sequence,klifs_pocket_85
   chembl_unlabelled_smiles: data/raw/chembl_drug_like.smi
+  # Ingest kinome_all_measurements_3.95M.parquet instead of kinome_multitask_300k.parquet.
+  # Only rows with a finite pActivity are usable by task_loss (~1.35M of ~4M); the
+  # %-inhibition and qualitative-flag rows are dropped with a printed count. Stage 1
+  # raises if the file is absent rather than silently falling back.
+  full_kinome: true
+  # Molecules the 200-d RobustScaler is fitted on. Was hardcoded at 50_000; 0 means "all
+  # unique structures". 200k is ample for 200 quantiles and keeps Stage 1 fast.
+  desc_scaler_n: 200000
   standard_types: [IC50, Ki, Kd]
   mw_range: [150, 900]
   hac_range: [10, 65]
@@ -32,6 +40,12 @@ splits:
   tnk1_test_frac: 0.20
   n_outer: 5
   n_inner: 5
+  # Folds used for Stage 2 hyperparameter SELECTION. The shipped code hardcoded [:2]/[:2],
+  # i.e. 4 of the 25 folds, while the notebook reported "5x5 nested scaffold CV". null =
+  # use every fold (26 configs x 25 folds = 650 fits, roughly 30-60 min). Set to 2/2 to
+  # reproduce the old numbers, or to trade accuracy for wall-clock.
+  tune_outer_folds: null
+  tune_inner_folds: null
 
 # ---------------- Stage 3 ----------------
 model:
@@ -57,6 +71,13 @@ kinome_train:
   weight_decay: 1.0e-5
   lambda_sim: 3.0                               # tuned on LOKO over {0,1,3,10}
   lambda_grid: [0, 1, 3, 10]
+  # NOT a data cap -- it is the per-kinase importance weight
+  #     w_ik = (1 + lam*S_k^2) * min(1, sqrt(cap_n / N_k))
+  # which downweights over-represented kinases. Removing it does NOT give you "more data";
+  # it lets EGFR (19,085 pairs) and KDR (15,756) dominate the loss over TNK2 (1,350), the
+  # closest homolog to TNK1 and the one that transfers best. With full_kinome=true the
+  # imbalance grows, so this matters MORE, not less. Stage 3 `ablate` already measures the
+  # cap_n=1e9 variant if you want the comparison.
   cap_n: 2000
   sim_klifs: 0.7
   sim_esm: 0.3
@@ -111,18 +132,62 @@ rl:
   beta_explore_steps: 300
   beta_final: 1.5
   gamma: 1.0
+  # pot_c / sel_c are RECALIBRATED AT RUNTIME by the notebook from a fresh sample of the
+  # prior (tnk1.rl.reward.calibrate_centre, target_frac=0.30). The literals below are the
+  # historical Cycle-01 values, kept only so that run can be reproduced -- they are bad
+  # defaults and should not be used for a new run.
+  #
+  # Measured over the 12,000-molecule Cycle-01 pool:
+  #   pot_c = 7.0 while mu_tnk1 had mean 6.16  -> r_pot mean 0.185
+  #   sel_c = 1.2 while mu_sel  had MAX  0.25  -> r_sel mean 0.0089, 70% below 0.01
+  # No molecule in the pool ever reached the selectivity sigmoid's midpoint, so a
+  # nominal weight of 2.0/10.5 bought a near-constant ~0.38x penalty carrying almost no
+  # gradient. Recalibrating both centres moved the realised-signal spread across
+  # components from 23.0x to 5.9x and max R from 0.399 to 0.773.
   pot_c: 7.0
   pot_k: 2.0
   sel_c: 1.2
   sel_k: 2.0
   ad_scale: 0.15
+  # Intended influence vs. REALISED influence (sd(log r) x normalised weight), measured on
+  # the Cycle-01 pool. They diverged badly:
+  #   ad 0.380 > pot 0.335 > sel 0.157 > safety 0.080 > sa 0.037 > adme 0.019 > qed 0.016
+  # A weight-1.5 regulariser (ad) was the largest single driver of the objective, because
+  # d_lat reached 240831.9 against a threshold of 1.007 (fixed in tnk1/uq/applicability.py).
+  # adme and qed sit at the noise floor: they cost weight and return no gradient, so they
+  # belong in hard_gate. Audit any change with tnk1.rl.reward.component_signal and aim to
+  # keep the surviving components within ~2x of each other.
   weights: {pot: 3.0, sel: 2.0, ad: 1.5, sa: 1.0, adme: 1.0, safety: 1.5, qed: 0.5}
   diversity: {bucket_size: 25, min_score: 0.55}
   veto: null                                    # e.g. {safety: 0.05, sa: 0.05}; manual's formula alone does NOT give near-zero reward on a failed component
 
+# ---------------- Stage 7 alternative backend: rl_min ----------------
+# In-process DAP trainer (rl_min/). Unlike the REINVENT path it needs no second conda env
+# and no REST server, and it TRAINS the generator rather than sampling a fixed pool.
+# `sigma` multiplies the reward, so the reward's attainable range is part of this
+# hyperparameter: calibrate R to span [0,1] before sweeping sigma or the two are confounded.
+rl_min:
+  corpus: unique_molecules_788k.parquet   # 787,283 structures; null = Stage 6 kinase corpus
+  corpus_col: canonical_smiles
+  prior:
+    epochs: 40
+    batch: 512
+    hidden: 512
+    layers: 3
+    dropout: 0.2
+    min_validity: 0.80        # gate: DAP cannot rescue a prior that emits garbage
+  replay_size: 100            # sparse rewards -> without replay the gradient sees only failures
+  replay_batch: 16
+  grad_clip: 5.0
+  temperature: 1.0
+  baseline_n: 2000            # prior samples scored before training, for the comparison
+                              # that distinguishes "policy improved" from "drew more samples"
+
 # ---------------- Stage 8 ----------------
 al:
-  pool_size: 50000
+  # Candidates drawn from the trained agent and carried into Stage 8. Scoring cost is
+  # linear in this; 200k takes roughly 4x as long as the old 50k.
+  pool_size: 200000
   pareto_keep: 1500
   audit_tol: 1.0
   retro_max_steps: 4
