@@ -280,7 +280,7 @@ Neither score has been validated against experimental TNK1 titration data for th
 
 ## 7. The Final 40-Compound Wet-Lab Contract (Cycle 01)
 
-The finalized wet-lab contract is locked in [`contract_novel_team_b.csv`](tnk1-pipeline/tnk1-pipeline/runs/cycle_01/contract_novel_team_b.csv).
+The finalized wet-lab contract is locked in [`contract_novel_team_b.csv`](runs/cycle_01/contract_novel_team_b.csv).
 
 ### 7.1. Cohort Allocation
 1. **EXPLOIT Cohort (16 compounds, 40%):** Immediate drug leads ($\text{pIC}_{50} \in [7.01, 7.70]$, $\text{IC}_{50} \le 84\text{ nM}$) with 75% hinge coordination and established hinge-binding motifs.
@@ -453,26 +453,26 @@ conda activate tnk1
 
 # Install dependencies
 # core: numpy-only modules and the hermetic test suite
-pip install -r tnk1-pipeline/tnk1-pipeline/requirements-core.txt
+pip install -r requirements-core.txt
 # chemistry + deep learning: required by every generative, scoring and docking stage
-pip install -r tnk1-pipeline/tnk1-pipeline/requirements-chem.txt
+pip install -r requirements-chem.txt
 ```
 
 #### 2. Restore and Verify the Feature Store
 The twelve precomputed stores (~280 MB) are gitignored; a fresh clone has eleven absent.
 Every stage after Stage 1 depends on them.
 ```bash
-export TNK1_FEATURES_DIR=/path/to/ml_research/features   # optional if at the repo layout
-cd tnk1-pipeline/tnk1-pipeline && make verify-features
-# sha256 of every file vs ml_research/features/manifest.json; exit 0 iff corrupt=0 absent=0
+export TNK1_FEATURES_DIR=data/features   # optional if at the repo layout
+make verify-features
+# sha256 of every file vs data/features/manifest.json; exit 0 iff corrupt=0 absent=0
 ```
 
 #### 3. Execute Test Suite
 ```bash
-pytest tnk1-pipeline/tnk1-pipeline/tests/
-# Expected: 173 passed, 2 deselected (the live-registry tests) in ~17 seconds
+pytest
+# Expected: 173 passed, 2 deselected (the live-registry tests) in ~10 seconds
 
-pytest tnk1-pipeline/tnk1-pipeline/tests/ -m network
+pytest -m network
 # Expected: 2 passed — opt-in PubChem / UniChem checks
 ```
 

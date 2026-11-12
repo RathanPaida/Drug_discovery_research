@@ -1,0 +1,49 @@
+# AiZynthFinder configuration — Stage 8 `prepare` retrosynthesis screen.
+#
+# TEMPLATE. The three model/stock files below are ~1 GB and are not in this repository.
+# `tnk1.active_learning.retro.retro_screen()` is called by
+# `scripts/run_stage8_cycle.py prepare` with `--aizynth-config configs/aizynth.yml`.
+#
+# ── Getting the files ────────────────────────────────────────────────────────
+#   pip install aizynthfinder
+#   download_public_data .          # writes uspto_model.onnx, uspto_templates.csv.gz,
+#                                   # uspto_filter_model.onnx, zinc_stock.hdf5
+# Then point the paths below at wherever you put them (absolute paths are fine, and are
+# safer than relative ones because Stage 8 runs with the package root as cwd).
+#
+# ── Cost warning ─────────────────────────────────────────────────────────────
+# This is the single slowest step in the pipeline. Retrosynthesis search runs
+# `al.retro_max_steps` (4) expansions per molecule over `al.pareto_keep` (1500)
+# candidates. At 5–30 s per molecule that is 2–12 hours. Two ways to cut it:
+#
+#   * lower `al.pareto_keep` in configs/default.yaml (1500 -> 300 costs ~5x less)
+#   * set SKIP_RETRO=True in the v2 notebook and patch retro_screen out of
+#     run_stage8_cycle.py; you lose the synthesisability filter but nothing else
+#
+# Retrosynthetic feasibility is a *filter on candidates*, not an input to any model, so
+# skipping it changes which molecules reach docking but does not invalidate Stages 1–7.
+
+expansion:
+  uspto:
+    - /ABSOLUTE/PATH/TO/uspto_model.onnx
+    - /ABSOLUTE/PATH/TO/uspto_templates.csv.gz
+
+filter:
+  uspto: /ABSOLUTE/PATH/TO/uspto_filter_model.onnx
+
+stock:
+  zinc: /ABSOLUTE/PATH/TO/zinc_stock.hdf5
+
+search:
+  # Mirrors al.retro_max_steps / al.retro_min_state_score in configs/default.yaml.
+  # Keep them consistent: retro_screen() reads the thresholds from default.yaml and the
+  # search depth from here, so a mismatch silently changes what "retro_ok" means.
+  max_transforms: 4
+  time_limit: 120          # seconds per molecule; the practical throughput knob
+  iteration_limit: 100
+  return_first: false
+
+post_processing:
+  all_routes: false
+  min_routes: 1
+  max_routes: 5

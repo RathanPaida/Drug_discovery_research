@@ -21,6 +21,55 @@ def r_ad(d_lat, d_thr, scale=0.15): return np.exp(-np.maximum(0.0, np.asarray(d_
 def r_sa(sa, lo=2.0, hi=5.5): return np.clip((hi - np.asarray(sa)) / (hi - lo), 0, 1)
 
 
+# ---------------------------------------------------------------- reward calibration
+# A sigmoid component only produces a usable gradient near its centre. Pin the centre
+# somewhere the population does not reach and the term degenerates into a constant
+# multiplier that still consumes its share of the weight budget. That is what happened to
+# r_sel in Cycle 01: c was 1.2 while mu_sel over the whole 12,000-molecule pool had
+# mean -1.24 and MAXIMUM 0.25, so no molecule ever reached the midpoint, 70% of the pool
+# scored below 0.01, and a nominal weight of 2.0/10.5 bought a near-flat ~0.38x penalty.
+
+def calibrate_centre(values, target_frac=0.30) -> float:
+    """Centre a sigmoid so ~`target_frac` of `values` scores above 0.5.
+
+    Use this to set `pot_c` / `sel_c` from a representative sample of the generator's own
+    output (e.g. 10k molecules from the prior) instead of hand-picking a target value.
+    A target_frac near 0.3 keeps the component discriminative: most candidates sit on the
+    rising part of the curve rather than pinned to either rail."""
+    v = np.asarray(values, float)
+    v = v[np.isfinite(v)]
+    if v.size == 0:
+        raise ValueError("no finite values to calibrate against")
+    return float(np.percentile(v, 100.0 * (1.0 - target_frac)))
+
+
+def component_signal(comps: dict, weights: dict, components=None) -> dict:
+    """Realised influence of each reward term: sd(log r) x normalised weight.
+
+    `weights` states intended influence; this measures the delivered amount. They diverge
+    badly in practice. On the shipped Cycle-01 pool the intended ranking was
+    pot(3.0) > sel(2.0) > ad(1.5) = safety(1.5) > sa(1.0) = adme(1.0) > qed(0.5), but the
+    realised ranking was ad 0.380 > pot 0.335 > sel 0.157 > safety 0.080 > sa 0.037 >
+    adme 0.019 > qed 0.016 -- a weight-1.5 regulariser was steering the objective.
+
+    READ IT WITH ITS BLIND SPOT. A LOW value means the term is flat and returns no
+    gradient: adme 0.019 and qed 0.016 were effectively constants, and such terms belong
+    in `hard_gate` where they cost nothing. A HIGH value does NOT certify a healthy term.
+    A sigmoid pinned to its saturated tail has log r ~ k(x - c), linear in x, so its
+    log-variance is at its MAXIMUM precisely when every molecule sits on one rail -- which
+    is exactly the state r_sel was in. Pair this with the component's mean and range
+    (`r.mean()`, `r.max() - r.min()`): a term whose mean is ~0.01 is crushing R's ceiling
+    no matter how much log-variance it shows. Aim for the survivors to land within ~2x of
+    each other AND to span a usable fraction of [0,1]."""
+    components = components or COMPONENTS
+    wsum = sum(weights[c] for c in components)
+    out = {}
+    for c in components:
+        lv = np.log(np.maximum(np.asarray(comps[c], float), 1e-4))
+        out[c] = float(lv.std() * weights[c] / wsum)
+    return out
+
+
 def r_adme(r_aqsol, r_caco2, r_micro):
     return (np.asarray(r_aqsol) * np.asarray(r_caco2) * np.asarray(r_micro)) ** (1 / 3)
 
@@ -117,14 +166,16 @@ def hard_gate(valid, n_alerts, mw, p_ames, mw_max=600.0, p_herg=None, p_herg_max
     return res.astype(float)
 
 
-def aggregate(comps: dict, weights: dict, gate, veto: dict | None = None) -> np.ndarray:
+def aggregate(comps: dict, weights: dict, gate, veto: dict | None = None,
+              components=None) -> np.ndarray:
     """R = I_hard * prod_j max(r_j, 1e-4)^(w_j / sum w).
     CAUTION (spec check): with normalised exponents a component that collapses to the 1e-4 floor only scales R by
     (1e-4)^(w_j/sum w) -- e.g. 0.27 for safety (w=1.5 of 10.5), 0.07 for potency -- i.e. NOT 'near zero'.
     `veto={'safety':0.05,'sa':0.05}` optionally zeroes R when a component falls below its threshold; default off
     (= manual as written). Enable via cfg rl.veto after reviewing with the PI."""
-    wsum = sum(weights[c] for c in COMPONENTS)
-    logr = sum(weights[c] / wsum * np.log(np.maximum(np.asarray(comps[c], float), 1e-4)) for c in COMPONENTS)
+    components = components or COMPONENTS
+    wsum = sum(weights[c] for c in components)
+    logr = sum(weights[c] / wsum * np.log(np.maximum(np.asarray(comps[c], float), 1e-4)) for c in components)
     out = np.asarray(gate, float) * np.exp(logr)
     for c, thr in (veto or {}).items():
         out = np.where(np.asarray(comps[c], float) < thr, 0.0, out)

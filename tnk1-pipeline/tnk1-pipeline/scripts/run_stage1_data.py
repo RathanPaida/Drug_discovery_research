@@ -105,40 +105,113 @@ def main():
             "gene_name": df_tnk1["gene_symbol"]
         })
 
-        # Kinome multi-task records
+        # ------------------------------------------------------------------
+        # Kinome records.
+        #
+        # data.full_kinome=true ingests kinome_all_measurements_3.95M.parquet instead of
+        # kinome_multitask_300k.parquet (425,906 pairs). Only rows carrying a finite
+        # pActivity are usable here: per the feature-store README the full file is about
+        #     946,262 exact dose-response  -> usable
+        #     408,357 right-censored       -> usable
+        #     858,491 single-point %-inhibition   -> NO pActivity
+        #   2,365,725 qualitative active/inactive -> NO pActivity
+        # so roughly 1.35M of the ~4M rows reach training. The rest need a classification
+        # head rather than `task_loss`, and are dropped with an explicit count instead of
+        # being silently coerced to NaN.
+        #
+        # Memory: the file is 186 MB on disk but SMILES strings do not compress in pandas.
+        # Only required columns are read, repeated string columns become `category`, and
+        # floats become float32. That keeps a 1.35M-row frame near ~1 GB rather than
+        # several GB -- Ctx holds this frame for the whole session.
+        # ------------------------------------------------------------------
         kinome_parts = [tnk1_formatted]
+        full_path = features_dir / "kinome_all_measurements_3.95M.parquet"
         mt_path = features_dir / "kinome_multitask_300k.parquet"
-        if mt_path.exists():
-            df_mt = pd.read_parquet(mt_path)
-            # Remove any duplicate TNK1 rows if present
-            df_mt = df_mt[df_mt["uniprot_id"] != cfg["targets"]["tnk1"]]
-            
-            # Map scaffolds from unique molecules store
+        want_full = bool(d.get("full_kinome", False))
+        if want_full and not full_path.exists():
+            raise FileNotFoundError(
+                f"data.full_kinome=true but {full_path} is absent. Place the file, or set "
+                f"data.full_kinome=false to fall back to {mt_path.name}.")
+        src_path = full_path if want_full else mt_path
+
+        if src_path.exists():
+            import pyarrow.parquet as pq
+
+            def _pick(cols, cands, what, required=True):
+                for c in cands:
+                    if c in cols:
+                        return c
+                if required:
+                    raise KeyError(
+                        f"{src_path.name}: no column for {what!r} among {cands}. "
+                        f"Available columns: {sorted(cols)}")
+                return None
+
+            schema = set(pq.ParquetFile(src_path).schema.names)
+            c_key  = _pick(schema, ["inchikey14", "inchikey_block1", "inchikey"], "inchikey")
+            c_uni  = _pick(schema, ["uniprot_id", "uniprot", "target_uniprot"], "uniprot_id")
+            c_smi  = _pick(schema, ["canonical_smiles", "smiles"], "smiles")
+            c_pact = _pick(schema, ["pActivity", "pact", "p_activity"], "pActivity")
+            c_cens = _pick(schema, ["is_censored", "censored"], "censored", required=False)
+            c_type = _pick(schema, ["standard_type", "activity_type"], "standard_type", required=False)
+            c_nrep = _pick(schema, ["n_replicates", "n_rep"], "n_replicates", required=False)
+            c_srep = _pick(schema, ["sigma_rep", "sigma_replicate"], "sigma_rep", required=False)
+            c_src  = _pick(schema, ["source", "primary_source"], "source", required=False)
+            c_wt   = _pick(schema, ["sample_weight", "weight", "w_ik"], "sample_weight", required=False)
+            c_gene = _pick(schema, ["gene_symbol", "gene_name"], "gene_symbol", required=False)
+            cols = [c for c in [c_key, c_uni, c_smi, c_pact, c_cens, c_type, c_nrep,
+                                c_srep, c_src, c_wt, c_gene] if c]
+
+            print(f"Reading {src_path.name} ({src_path.stat().st_size/1e6:.0f} MB), "
+                  f"{len(cols)} of {len(schema)} columns")
+            df_mt = pd.read_parquet(src_path, columns=cols)
+            n_raw = len(df_mt)
+
+            pact = pd.to_numeric(df_mt[c_pact], errors="coerce")
+            keep = np.isfinite(pact)
+            n_drop = int((~keep).sum())
+            df_mt, pact = df_mt[keep], pact[keep]
+            print(f"  {n_raw:,} rows -> {len(df_mt):,} with finite pActivity "
+                  f"({n_drop:,} dropped: %-inhibition / qualitative, no regression target)")
+
+            m_keep = df_mt[c_uni] != cfg["targets"]["tnk1"]
+            df_mt, pact = df_mt[m_keep], pact[m_keep]
+            print(f"  {len(df_mt):,} after removing TNK1 rows (TNK1 comes from the curated set)")
+
+            keys14 = df_mt[c_key].astype(str).str[:14]
             mol_path = features_dir / "unique_molecules_788k.parquet"
             if mol_path.exists():
                 df_mols = pd.read_parquet(mol_path, columns=["inchikey14", "murcko_scaffold"])
                 scaf_map = dict(zip(df_mols["inchikey14"], df_mols["murcko_scaffold"]))
-                mt_scafs = df_mt["inchikey14"].map(scaf_map).fillna("")
+                mt_scafs = keys14.map(scaf_map).fillna("").values
+                del df_mols, scaf_map
             else:
                 mt_scafs = ""
 
+            def _num(col, default, dtype):
+                if col is None:
+                    return np.array(default, dtype=dtype)
+                return pd.to_numeric(df_mt[col], errors="coerce").fillna(default).astype(dtype).values
+
             mt_formatted = pd.DataFrame({
-                "inchikey_block1": df_mt["inchikey14"],
-                "uniprot_id": df_mt["uniprot_id"],
-                "standard_type": "IC50",
-                "smiles": df_mt["canonical_smiles"],
+                "inchikey_block1": keys14.values,
+                "uniprot_id": pd.Categorical(df_mt[c_uni]),
+                "standard_type": (pd.Categorical(df_mt[c_type]) if c_type else "IC50"),
+                "smiles": df_mt[c_smi].values,
                 "scaffold": mt_scafs,
-                "pact": df_mt["pActivity"].astype(float),
-                "censored": df_mt["is_censored"].astype(int),
-                "n_rep": df_mt["n_replicates"].astype(int),
-                "sigma_rep": df_mt["sigma_rep"].astype(float),
-                "source": df_mt["source"],
-                "weight": df_mt["sample_weight"].astype(float),
-                "gene_name": df_mt["gene_symbol"]
+                "pact": pact.astype("float32").values,
+                "censored": _num(c_cens, 0, "int8"),
+                "n_rep": _num(c_nrep, 1, "int16"),
+                "sigma_rep": _num(c_srep, 0.0, "float32"),
+                "source": (pd.Categorical(df_mt[c_src]) if c_src else "kinome"),
+                "weight": _num(c_wt, 1.0, "float32"),
+                "gene_name": (pd.Categorical(df_mt[c_gene]) if c_gene else ""),
             })
+            del df_mt, pact, keys14
             kinome_parts.append(mt_formatted)
 
         final = pd.concat(kinome_parts, ignore_index=True)
+        print(f"Frame in memory: {final.memory_usage(deep=True).sum()/1e9:.2f} GB")
 
     print(f"Total curated long records: {len(final):,}")
     print(final.groupby("uniprot_id").size().sort_values(ascending=False).head(10))

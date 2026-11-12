@@ -23,6 +23,12 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--cycle", type=int, required=True)
     ap.add_argument("--rl-csv", nargs="*"); ap.add_argument("--docking", default=None); ap.add_argument("--results", default=None)
     ap.add_argument("--aizynth-config", default="configs/aizynth.yml")
+    # Retrosynthetic feasibility FILTERS candidates; it feeds no model. Skipping changes
+    # which molecules reach docking and invalidates nothing upstream. It is also the
+    # slowest step in the pipeline (5-30 s x al.pareto_keep candidates = 2-12 h), and
+    # AiZynthFinder needs ~1 GB of model files that are not in this repository.
+    ap.add_argument("--skip-retro", action="store_true",
+                    help="bypass the AiZynthFinder synthesisability screen")
     ap.add_argument("--config", default="configs/default.yaml"); ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg, al = C.cfg, C.cfg["al"]
     cyc = C.runs / f"cycle_{a.cycle:02d}"; cyc.mkdir(parents=True, exist_ok=True)
@@ -53,8 +59,14 @@ def main():
         P["mu_gp"] = gp.predict(morgan_count(P.smiles)); P = P[(P.mu - P.mu_gp).abs() <= al["audit_tol"]].reset_index(drop=True)
         objs = np.c_[P.mu - P.sigma_epi, P.mu_sel - P.sigma_sel, P.adme, P.ad, P.sa, P.safety]
         P = P.iloc[ACQ.top_by_pareto(objs, al["pareto_keep"], P.R.values)].reset_index(drop=True)
-        rs = retro_screen(list(P.smiles), a.aizynth_config, al["retro_max_steps"], al["retro_min_state_score"])
-        P = P.merge(rs[["smiles", "retro_ok", "state_score", "n_steps"]], on="smiles"); P = P[P.retro_ok]
+        if a.skip_retro:
+            print(f"[stage8] --skip-retro: keeping all {len(P)} candidates WITHOUT a "
+                  f"synthesisability screen. Downstream rows carry retro_ok=True by "
+                  f"assertion, not by evidence -- do not report them as synthesisable.")
+            P = P.assign(retro_ok=True, state_score=float("nan"), n_steps=-1)
+        else:
+            rs = retro_screen(list(P.smiles), a.aizynth_config, al["retro_max_steps"], al["retro_min_state_score"])
+            P = P.merge(rs[["smiles", "retro_ok", "state_score", "n_steps"]], on="smiles"); P = P[P.retro_ok]
         P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
         P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)
         print(f"{len(P)} retro-feasible candidates -> send {cyc/'docking_request.csv'} to Team B (docking: hinge H-bond, no clash)")

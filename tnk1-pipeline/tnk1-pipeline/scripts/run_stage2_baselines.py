@@ -35,14 +35,25 @@ def main():
         "XGB": ("tab", lambda p: M.make_xgb(**p), {"max_depth": [3, 5, 7], "learning_rate": [.01, .05], "reg_lambda": [1, 10]}),
         "TanimotoGP": ("fp", lambda p: M.TanimotoGP(), {"_": [0]}),
     }
+    # Nested-CV breadth for hyperparameter selection. The shipped code used
+    # spl["cv"][:2] / f["inner"][:2] -- 4 of the 25 folds -- while the notebook reported
+    # "5x5 nested scaffold cross-validation". Default is now every fold; set
+    # splits.tune_outer_folds / splits.tune_inner_folds in the config to trade accuracy
+    # for wall-clock on a slower machine.
+    _sp = cfg.get("splits", {})
+    N_OUT = _sp.get("tune_outer_folds") or len(spl["cv"])
+    N_INN = _sp.get("tune_inner_folds") or max(len(f["inner"]) for f in spl["cv"])
+    print(f"[stage2] hyperparameter search over {N_OUT} outer x {N_INN} inner folds "
+          f"({N_OUT * N_INN} of {len(spl['cv']) * max(len(f['inner']) for f in spl['cv'])})")
+
     results = []
     for name, (kind, ctor, g) in specs.items():
         # hyperparameter selection: mean inner-CV RMSE across outer folds' inner splits
         best, best_s = None, 1e9
         for p in grid(g):
             errs = []
-            for f in spl["cv"][:2]:
-                for inn in f["inner"][:2]:
+            for f in spl["cv"][:N_OUT]:
+                for inn in f["inner"][:N_INN]:
                     tr, va = rows_of(inn["train"]), rows_of(inn["val"])
                     if len(tr) < 5 or not len(va): continue
                     Xa = X_for(kind, tr); m = ctor({k: v for k, v in p.items() if k != "_"}).fit(Xa[tr], y[tr])
