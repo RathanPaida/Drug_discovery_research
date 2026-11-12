@@ -69,39 +69,8 @@ To circumvent the limitations of commercial catalog screening, recent machine le
 
 \begin{figure*}[!t]
 \centering
-\small
-\setlength{\tabcolsep}{12pt}
-\begin{tabular}{|p{0.92\textwidth}|}
-\hline
-\vspace{0.2em}
-\textbf{\large Closed-Loop Computational Architecture for TNK1 Lead Discovery}\\[0.6em]
-\textbf{Stage 1: Pan-Kinome Bioactivity Harvest \& Chemical Standardization} \\
-$\bullet$ Ingestion of 4,798,165 raw measurements across 491 human protein kinases from ChEMBL 34, PubChem, BindingDB, and PKIS. \\
-$\bullet$ Rigorous 6-step RDKit chemical standardization: metal salt stripping, charge neutralization, stereo normalization, tautomer canonicalization. \\
-$\bullet$ Triplet deduplication $\to$ 380 curated TNK1 endpoints (172 exact quantitative + 208 right-censored) across 285 Murcko scaffolds.\\[0.6em]
-\textbf{Stage 2: Multimodal Representation \& ESM-2 Pocket Conditioning} \\
-$\bullet$ Ligands: Concatenated 2048-bit Morgan circular count fingerprints + 200 robustly scaled RDKit 2D continuous descriptors ($\mathbb{R}^{2248}$). \\
-$\bullet$ Pocket Homology: Penultimate layer embeddings ($\mathbb{R}^{1280}$) from the 650M-parameter protein language model ESM-2 extracted across the 85-residue KLIFS catalytic cleft. \\
-$\bullet$ Directed Message Passing Neural Network (D-MPNN) molecular graph extraction (133-d atom, 14-d bond features).\\[0.6em]
-\textbf{Stage 3: Chemogenomic Multi-Task Transfer \& Censored Loss Trunk} \\
-$\bullet$ Multi-task pretraining over 425,906 assays across 292 human kinases; Leave-One-Kinase-Out (LOKO) regularization tuning ($\lambda \in \{0, 1, 3, 10\}$). \\
-$\bullet$ Dual heteroscedastic objective: Gaussian NLL for exact values, one-sided ReLU hinge penalty for censored weak negatives, and $L_2$-SP target fine-tuning.\\[0.6em]
-\textbf{Stage 4: 10-Member Deep Ensemble \& Inductive Split-Conformal Calibration} \\
-$\bullet$ Inter-model variance decomposition separating epistemic uncertainty ($\sigma_{\text{epi}}$) from heteroscedastic assay noise ($\sigma_{\text{ale}}$). \\
-$\bullet$ Non-conformity calibration on held-out scaffold test sets converging to $\hat{q} = 1.743$ (93.3\% empirical coverage, $118/127$ points).\\[0.6em]
-\textbf{Stage 5: 34-Endpoint Pharmacological Profiling \& Gating Engine} \\
-$\bullet$ Primary TNK1 potency ($\mu, \sigma_{\text{tot}}, \text{CI}_{90}$) + 8-kinase selectivity counter-panel (ACK1, SRC, ABL1, LCK, PYK2, EGFR, KDR, FLT3). \\
-$\bullet$ Deep ADMET Neural Network (Caco-2, $\text{CL}_{\text{int}}$, $P_{\text{hERG}}$, $P_{\text{AMES}}$, CYP3A4, CYP2D6, ESOL $\log S$) + QEPPI continuous PPI drug-likeness.\\[0.6em]
-\textbf{Stage 6: Policy-Gradient Reinforcement Learning with Cryptographic Novelty Penalties} \\
-$\bullet$ REINFORCE policy-gradient navigation across 10 kinase-privileged bioisosteric cores, aryl gatekeeper linkers, and solubilizing basic tails. \\
-$\bullet$ Cryptographic hash gating (27-char InChIKey and 14-char skeletal hashes) zeroing reward for known compounds $\to$ 12,000 candidate pool.\\[0.6em]
-\textbf{Stage 7: External Multi-Tier Novelty Verification \& AlphaFold2 Structural Docking} \\
-$\bullet$ Independent registry audit: NCBI PubChem (115M+), EMBL-EBI UniChem 2.0 (38 DBs including SureChEMBL patents), and 788k kinome Tanimoto scanning. \\
-$\bullet$ Orthogonal molecular docking against AlphaFold2 TNK1 catalytic domain (pLDDT: 89.2) via AutoDock Vina v1.2.7 $\longrightarrow$ \textbf{40-Compound Wet-Lab Contract}.\\
-\vspace{0.2em}
-\hline
-\end{tabular}
-\caption{End-to-end system architecture of the TNK1 \textit{de novo} design platform, detailing data curation, chemogenomic transfer learning, split-conformal uncertainty calibration, multi-objective pharmacological scoring, reinforcement learning, external novelty verification, and structural docking.}
+\includegraphics[width=\textwidth]{figures/fig1_pipeline_architecture.pdf}
+\caption{End-to-end closed-loop computational drug discovery platform for the orphan oncogenic kinase TNK1. The architecture integrates pan-kinome bioactivity harvesting and chemical standardization across 4.80M measurements, multimodal ligand featurization (Morgan count fingerprints, 200 RDKit descriptors, D-MPNN graphs) paired with 1280-d evolutionary pocket language representations from ESM-2, heteroscedastic chemogenomic transfer learning with censored hinge loss, 10-member deep ensemble variance decomposition calibrated via split-conformal prediction ($\hat{q} = 1.743$), a 34-endpoint pharmacological profiling engine, policy-gradient reinforcement learning with cryptographic hash gating, multi-tier worldwide external novelty verification, and automated AlphaFold2 catalytic domain molecular docking, culminating in a 40-compound active learning synthesis contract.}
 \label{fig:architecture}
 \end{figure*}
 
@@ -321,34 +290,12 @@ Because $\sigma_{\text{epi}}(\mathbf{x})$ isolates model parameter uncertainty (
 
 To ensure that generated compounds possess drug-like pharmacokinetic profiles and acceptable safety margins, candidates are evaluated across a 34-endpoint multidimensional pharmacological profiling suite (Fig.~\ref{fig:profiling_suite}).
 
-\begin{figure}[!t]
+\begin{figure*}[!t]
 \centering
-\small
-\setlength{\tabcolsep}{8pt}
-\begin{tabular}{|p{0.44\textwidth}|}
-\hline
-\vspace{0.2em}
-\textbf{\large 34-Endpoint Pharmacological Suite}\\[0.4em]
-\textbf{Tier 1: TNK1 Primary Potency (6 properties)} \\
-$\bullet$ Mean potency $\mu_{\text{TNK1}}$, estimated $\text{IC}_{50}$ (nM), aleatoric $\sigma_{\text{ale}}$, epistemic $\sigma_{\text{epi}}$, total standard deviation $\sigma_{\text{tot}}$, 90\% conformal bounds.\\[0.4em]
-\textbf{Tier 2: 8-Kinase Selectivity Counter-Panel (9 properties)} \\
-$\bullet$ Predictions across ACK1, SRC, ABL1, LCK, PYK2, EGFR, KDR (VEGFR2), FLT3. \\
-$\bullet$ Kinome Selectivity Margin: $\mu_{\text{sel}} = \mu_{\text{TNK1}} - \max_{k \in \text{Panel}} \mu_k$.\\[0.4em]
-\textbf{Tier 3: Deep ADMET Ensemble (7 properties)} \\
-$\bullet$ Caco-2 permeability ($\log P_{\text{app}}$), clearance ($\log \text{CL}_{\text{int}}$). \\
-$\bullet$ $P_{\text{hERG}}$ cardiotoxicity, $P_{\text{AMES}}$ mutagenicity. \\
-$\bullet$ CYP3A4 / CYP2D6 inhibition liability, ESOL $\log S$ aqueous solubility.\\[0.4em]
-\textbf{Tier 4: Medicinal Chemistry \& PPI Filters (12 properties)} \\
-$\bullet$ Continuous QEPPI (PPI-targeting drug-likeness index). \\
-$\bullet$ QED, Synthetic Accessibility (SA score 1--10). \\
-$\bullet$ Lipinski parameters (MW, cLogP, TPSA, HBD, HBA, RotB). \\
-$\bullet$ Structural alert filters: PAINS, Brenk, NIH collections.\\
-\vspace{0.2em}
-\hline
-\end{tabular}
-\caption{Organization of the 34-endpoint pharmacological profiling engine.}
+\includegraphics[width=0.92\textwidth]{figures/fig4_selectivity_admet_radars.pdf}
+\caption{Multidimensional pharmacological profiling across the 40 prioritized leads. (A) 8-Kinase selectivity counter-panel radar profile comparing top leads (TNK1-NOV-C01-018 and C01-004) against clinical reference kinase inhibitors (Dasatinib and TP-0903) across TNK1 and homologous counter-targets (ACK1, SRC, ABL1, LCK, PYK2, EGFR, KDR, FLT3). (B) Deep ADMET neural network profiling radar evaluating normalized desirability across seven key pharmacokinetic and safety endpoints (Caco-2 permeability, intrinsic clearance stability, hERG cardiac safety, AMES mutagenicity safety, CYP3A4 safety, CYP2D6 safety, and ESOL aqueous solubility).}
 \label{fig:profiling_suite}
-\end{figure}
+\end{figure*}
 
 \subsection{Selectivity Counter-Panel}
 Off-target promiscuity is a primary source of clinical failure for tyrosine kinase inhibitors. We incorporated an 8-kinase counter-panel ($\mathcal{O}$) comprising phylogenetically close relatives and clinically sensitive off-targets:
@@ -463,7 +410,14 @@ Policy parameters $\theta$ are updated via gradient ascent with an exponential m
 \begin{equation}
     \theta \leftarrow \theta + \eta \, (R_{\text{total}}(x) - b) \, \nabla_\theta \log \pi_\theta(x).
 \end{equation}
-The RL engine executed 1,000 policy gradient steps (batch size 128) on an NVIDIA RTX 4060 GPU, generating a candidate pool of 12,000 fully evaluated novel molecules.
+The RL engine executed 1,000 policy gradient steps (batch size 128) on an NVIDIA RTX 4060 GPU, generating a candidate pool of 12,000 fully evaluated novel molecules (Fig.~\ref{fig:rl_distributions}).
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig3_rl_generative_distributions.pdf}
+\caption{Policy-gradient reinforcement learning optimization and chemical space exploration. (A) Distribution of composite multi-objective scalar rewards ($R_{\text{total}}$) across the 12,000 generated candidate molecules under cryptographic hash gating. (B) Multi-objective Pareto frontier comparing predicted TNK1 potency ($\text{pIC}_{50}$) against kinome selectivity margin ($\mu_{\text{sel}}$), highlighting the prioritized 40-compound wet-lab contract leads. (C) Developability space distribution plotting synthetic accessibility (SA score, lower indicates greater ease of synthesis) against quantitative drug-likeness (QED).}
+\label{fig:rl_distributions}
+\end{figure*}
 
 % =========================================================================
 % SECTION VIII: RESULTS AND DISCUSSION
@@ -494,7 +448,14 @@ Deep Ensemble (Calibrated) & 0.623 & 0.419 & 0.264 & 0.352 & \textbf{93.3\%} \\
 
 While tree-based models (Random Forest and XGBoost) achieved lower retrospective point RMSE on the small chemical series present in ChEMBL ($\text{RMSE} = 0.436 - 0.480$, Pearson $r = 0.686$), the 10-member calibrated Deep Ensemble with ESM-2 pocket embeddings was selected for \textit{de novo} candidate prioritization because it provides: (1) cross-kinase transfer capabilities across 491 kinases, (2) heteroscedastic epistemic/aleatoric variance decomposition, and (3) well-calibrated conformal coverage (93.3\% empirical coverage vs. 73.3\% for $k\text{NN}$ and 79.1\% for Random Forest).
 
-In the Leave-One-Kinase-Out (LOKO) transfer experiment—where all direct TNK1 measurements were excluded from pre-training and bioactivity was predicted purely through ESM-2 pocket homology—transfer ranking performance varied with the similarity loss weight $\lambda_{\text{sim}}$: $\rho = 0.482$ ($\lambda=0$), $\rho = 0.521$ ($\lambda=1$), $\rho = 0.584$ ($\lambda=3$), and $\rho = 0.540$ ($\lambda=10$), demonstrating that cross-kinase transfer provides effective inductive bias for data-scarce kinases.
+In the Leave-One-Kinase-Out (LOKO) transfer experiment—where all direct TNK1 measurements were excluded from pre-training and bioactivity was predicted purely through ESM-2 pocket homology—transfer ranking performance varied with the similarity loss weight $\lambda_{\text{sim}}$: $\rho = 0.482$ ($\lambda=0$), $\rho = 0.521$ ($\lambda=1$), $\rho = 0.584$ ($\lambda=3$), and $\rho = 0.540$ ($\lambda=10$), demonstrating that cross-kinase transfer provides effective inductive bias for data-scarce kinases (Fig.~\ref{fig:benchmarks_conformal}).
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig2_benchmarks_and_conformal.pdf}
+\caption{Retrospective machine learning evaluation and split-conformal calibration on TNK1. (A) Comparative point-error evaluation (RMSE and MAE) across seven candidate architectures on held-out TNK1 bioactivities ($N=45$) under 5$\times$5 nested Bemis-Murcko scaffold cross-validation. (B) Inductive split-conformal calibration curve demonstrating empirical coverage against nominal confidence level $(1 - \alpha)$, with empirical quantile threshold $\hat{q} = 1.743$ achieving 93.3\% empirical coverage ($118/127$ points). (C) Dual-source uncertainty quantification across the prioritized 40 leads separating irreducible assay noise ($\sigma_{\text{ale}}$) from model epistemic uncertainty ($\sigma_{\text{epi}}$).}
+\label{fig:benchmarks_conformal}
+\end{figure*}
 
 \subsection{Multi-Tier Worldwide External Novelty Audit}
 To ensure that generated leads represent genuine patent-free chemical entities rather than artifacts of internal database lookups, the top 40 contract molecules were subjected to a 4-tier external registry audit (Table~\ref{tab:novelty}).
@@ -520,7 +481,14 @@ Kinome Close Analogs ($T \ge 0.85$) & 787,283 Compounds & 0 / 40 & \textbf{100.0
 \end{tabular}
 \end{table}
 
-Across all 40 prioritized molecules, \textit{zero} exact matches and \textit{zero} skeletal matches were detected in NCBI PubChem or EMBL-EBI UniChem 2.0. Pairwise bitwise Morgan circular fingerprint (2048-bit, radius 2) Tanimoto similarity calculations against the 787,283 known kinase inhibitors revealed a mean maximum similarity of $\bar{T}_{\max} = 0.400 \pm 0.072$ (range $[0.282, 0.542]$). Because no candidate exceeded $T = 0.55$, all 40 molecules reside far outside the conventional analogue threshold ($T \ge 0.85$), confirming that the RL generator navigated into unexplored chemical space.
+Across all 40 prioritized molecules, \textit{zero} exact matches and \textit{zero} skeletal matches were detected in NCBI PubChem or EMBL-EBI UniChem 2.0. Pairwise bitwise Morgan circular fingerprint (2048-bit, radius 2) Tanimoto similarity calculations against the 787,283 known kinase inhibitors revealed a mean maximum similarity of $\bar{T}_{\max} = 0.400 \pm 0.072$ (range $[0.282, 0.542]$). Because no candidate exceeded $T = 0.55$, all 40 molecules reside far outside the conventional analogue threshold ($T \ge 0.85$), confirming that the RL generator navigated into unexplored chemical space (Fig.~\ref{fig:novelty_audit}).
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.88\textwidth]{figures/fig7_novelty_tanimoto_audit.pdf}
+\caption{Multi-tier independent worldwide novelty audit. (A) Maximum pairwise Morgan circular fingerprint (2048-bit, radius 2) Tanimoto similarity distribution against the 787,283 known kinase inhibitor library ($\bar{T}_{\max} = 0.400 \pm 0.072$, peak 0.542, all $< 0.55$), establishing structural separation from known active analogues ($T \ge 0.85$). (B) Worldwide database search results across NCBI PubChem (115M+ substances), EMBL-EBI UniChem 2.0 (38 public registries), SureChEMBL full-text patent extractions, and the local kinome store, confirming 100\% global chemical novelty.}
+\label{fig:novelty_audit}
+\end{figure*}
 
 \subsection{Pharmacological Multi-Endpoint Profiling of Leads}
 Table~\ref{tab:pharm_summary} summarizes the predicted pharmacological, pharmacokinetic, and physicochemical properties across the 40-compound cohort, generated deterministically from the locked contract dataset (\texttt{contract\_novel\_team\_b.csv}).
@@ -601,9 +569,16 @@ AutoDock Vina molecular docking against the AlphaFold2 TNK1 catalytic domain con
 \end{tabular}
 \end{table*}
 
-Hinge engagement varied systematically across cohorts: in the \textbf{EXPLOIT} cohort, 12 of 16 molecules (75.0\%) established direct proximity ($\le 3.5\text{ \AA}$) with the hinge backbone, exemplified by \textbf{TNK1-NOV-C01-006} ($\Delta G = -9.22$ kcal/mol, contact distance $2.14\text{ \AA}$) and \textbf{TNK1-NOV-C01-004} ($\Delta G = -8.89$ kcal/mol, $2.32\text{ \AA}$). In the \textbf{HIGH\_PPID} cohort, binding free energies were consistently favorable (mean $\Delta G = -8.10 \pm 0.32$ kcal/mol), with peak QEPPI candidate \textbf{TNK1-NOV-C01-037} (QEPPI $= 0.857$) achieving $\Delta G = -7.86$ kcal/mol and a hinge contact distance of $2.27\text{ \AA}$.
+Hinge engagement varied systematically across cohorts (Fig.~\ref{fig:docking_divergence}A--B): in the \textbf{EXPLOIT} cohort, 12 of 16 molecules (75.0\%) established direct proximity ($\le 3.5\text{ \AA}$) with the hinge backbone, exemplified by \textbf{TNK1-NOV-C01-006} ($\Delta G = -9.22$ kcal/mol, contact distance $2.14\text{ \AA}$) and \textbf{TNK1-NOV-C01-004} ($\Delta G = -8.89$ kcal/mol, $2.32\text{ \AA}$). In the \textbf{HIGH\_PPID} cohort, binding free energies were consistently favorable (mean $\Delta G = -8.10 \pm 0.32$ kcal/mol), with peak QEPPI candidate \textbf{TNK1-NOV-C01-037} (QEPPI $= 0.857$) achieving $\Delta G = -7.86$ kcal/mol and a hinge contact distance of $2.27\text{ \AA}$.
 
-\textit{Evaluation of Predictor Divergence:} The Pearson correlation between machine learning predicted potency ($\text{pIC}_{50}$) and AutoDock Vina binding free energy ($\Delta G$) across the 40 candidates is:
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig5_docking_and_divergence.pdf}
+\caption{AlphaFold2 catalytic domain molecular docking and orthogonal predictor divergence. (A) Distribution of AutoDock Vina binding free energies ($\Delta G$ in kcal/mol) stratified by active learning cohort (Exploit: $-7.56 \pm 1.64$, Explore: $-7.22 \pm 1.16$, High-PPID: $-8.10 \pm 0.32$, Novel Scaffold: $-6.62 \pm 1.60$, Overall: $-7.32 \pm 1.44$ kcal/mol) benchmarked against clinical kinase inhibitors Dasatinib ($-8.37$ kcal/mol), Bosutinib ($-8.26$ kcal/mol), and TP-0903 ($-9.40$ kcal/mol). (B) Distribution of minimum distances to key hinge backbone atoms (Met147 / Val148 / Glu149), indicating 60.0\% overall hinge engagement ($\le 3.5\text{ \AA}$) and 75.0\% engagement in Exploit leads. (C) Scatter plot of machine learning predicted potency ($\text{pIC}_{50}$) versus AutoDock Vina binding free energy ($\Delta G$), demonstrating predictor divergence ($r = 0.0244, p = 0.88, n = 40$) resulting from candidate range restriction ($\text{pIC}_{50} \in [7.01, 8.25]$) and orthogonal physical modeling assumptions.}
+\label{fig:docking_divergence}
+\end{figure*}
+
+\textit{Evaluation of Predictor Divergence:} The Pearson correlation between machine learning predicted potency ($\text{pIC}_{50}$) and AutoDock Vina binding free energy ($\Delta G$) across the 40 candidates is plotted in Fig.~\ref{fig:docking_divergence}(C):
 \begin{equation}
     r = 0.0244 \quad (p = 0.88, \; n = 40).
 \end{equation}
@@ -614,13 +589,20 @@ Rather than demonstrating a definitive physical hierarchy, this near-zero correl
 % =========================================================================
 \section{Cycle 1 Active Learning Wet-Lab Contract}
 
-The 40 molecules in the finalized wet-lab contract (\texttt{contract\_novel\_team\_b.csv}) are stratified into four cohorts to balance hit confirmation against exploratory model expansion (Table~\ref{tab:top_leads}):
+The 40 molecules in the finalized wet-lab contract (\texttt{contract\_novel\_team\_b.csv}) are stratified into four cohorts to balance hit confirmation against exploratory model expansion (Table~\ref{tab:top_leads}; representative chemical structures depicted in Fig.~\ref{fig:lead_molecules}):
 \begin{enumerate}
     \item \textbf{Exploitation Cohort (16 compounds, 40\%):} High-confidence leads ($\text{pIC}_{50} \in [7.01, 7.70]$, predicted $\text{IC}_{50} \le 84$ nM) with 75\% hinge coordination for rapid biochemical hit confirmation.
     \item \textbf{Exploration Cohort (12 compounds, 30\%):} Targeted to areas of elevated epistemic uncertainty ($\sigma_{\text{epi}} \in [0.15, 0.20]$) to maximize informational entropy reduction and reduce posterior variance upon assay measurement.
     \item \textbf{Novel Scaffold Cohort (8 compounds, 20\%):} Distinct Murcko frameworks structurally separated from the 788k kinome library, prioritized for chemical diversity.
     \item \textbf{High-PPID Cohort (4 compounds, 10\%):} Leads with elevated QEPPI scores ($\ge 0.77$, up to $0.857$) designed to explore chemotypes compatible with protein-protein interaction interfaces.
 \end{enumerate}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.96\textwidth]{figures/fig6_lead_molecules_grid.png}
+\caption{Two-dimensional chemical structures of eight representative novel lead candidates selected for Cycle 1 synthesis and biochemical profiling. Structures were rendered with RDKit and annotated with compound identifiers, batch cohort allocation, predicted $\text{pIC}_{50}$ ($\text{IC}_{50}$ in nM), AutoDock Vina binding free energy ($\Delta G$ in kcal/mol), and minimum distance to the TNK1 hinge backbone. Candidates span diverse heterocyclic cores (including pyrimidine, pyrrolopyridine, indazole, and quinazoline motifs) while maintaining low structural similarity to known kinome actives ($\bar{T}_{\max} \le 0.542$) and zero recorded entries across worldwide chemical databases.}
+\label{fig:lead_molecules}
+\end{figure*}
 
 Every compound possesses a locked 90\% conformal prediction interval. Following chemical synthesis and biochemical titration assays by wet-lab partners, empirical assay residuals will directly benchmark prospective conformal coverage $\mathbb{P}(y \in \mathcal{C}_{90})$ and retrain the multi-task transfer trunk for Cycle 2.
 
