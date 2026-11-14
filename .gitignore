@@ -25,6 +25,7 @@ data/raw/tnk1_data/
 *.tab
 *.db
 *.csv.gz
+*.smi
 
 # Large precomputed feature stores (>25 MB)
 data/features/*.parquet
@@ -61,7 +62,6 @@ desktop.ini
 tools/
 
 # Standalone execution and runner script files (consolidated into TNK1_Master_Pipeline.ipynb)
-scripts/
 create_master_notebook.py
 reorganize_project.py
 

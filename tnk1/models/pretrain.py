@@ -31,6 +31,7 @@ def mask_batch(b: dict, frac: float, gen: torch.Generator):
 
 
 def pretrain(cfg, smiles, desc_scaler, out_path, device="cuda", seed=42):
+    import sys
     from ..baselines.features import rdkit_descriptors
     c, m = cfg["ssl_pretrain"], cfg["model"]
     enc, heads = DMPNNEncoder(m["hidden"], m["depth"], m["dropout"]).to(device), SSLHeads(m["hidden"], m["n_desc"]).to(device)
@@ -40,9 +41,10 @@ def pretrain(cfg, smiles, desc_scaler, out_path, device="cuda", seed=42):
     def collate(items):
         gs, sm = zip(*items)
         d = desc_scaler.transform(rdkit_descriptors(list(sm), m["n_desc"]))
-        return collate_graphs(list(gs)), torch.tensor(d)
+        return collate_graphs(list(gs)), torch.tensor(d, dtype=torch.float32)
+    num_workers = 0 if sys.platform == "win32" else c.get("num_workers", 0)
     dl = DataLoader(SSLSet(smiles, None), batch_size=c["batch_size"], shuffle=True, collate_fn=collate,
-                    num_workers=c["num_workers"], generator=gen)
+                    num_workers=num_workers, generator=gen)
     ce = nn.CrossEntropyLoss()
     for ep in range(c["epochs"]):
         tot = 0.0

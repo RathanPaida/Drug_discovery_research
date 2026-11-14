@@ -37,6 +37,19 @@ def bond_features(b) -> list[float]:
 def mol_to_graph(smiles: str) -> dict:
     from rdkit import Chem
     m = Chem.MolFromSmiles(smiles)
+    if m is None:
+        try:
+            m = Chem.MolFromSmiles(smiles, sanitize=False)
+            if m is not None:
+                Chem.SanitizeMol(m, Chem.SANITIZE_ALL ^ Chem.SANITIZE_KEKULIZE)
+        except Exception:
+            m = None
+    if m is None:
+        x = np.zeros((1, ATOM_DIM), dtype=np.float32)
+        x[0, 5] = 1.0  # carbon placeholder
+        labels = np.array([[6, 0, 0]], dtype=np.int64)
+        return {"x": x, "labels": labels, "src": np.zeros(0, np.int64), "dst": np.zeros(0, np.int64),
+                "ef": np.zeros((0, BOND_DIM), np.float32), "rev": np.zeros(0, np.int64)}
     x = np.array([atom_features(a) for a in m.GetAtoms()], dtype=np.float32)
     labels = np.array([[min(max(a.GetAtomicNum(), 0), 100), min(a.GetTotalDegree(), 5), int(a.GetIsAromatic())]
                        for a in m.GetAtoms()], dtype=np.int64)

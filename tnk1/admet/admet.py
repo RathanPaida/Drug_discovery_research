@@ -32,8 +32,10 @@ def load_tdc(group, name, seed=42):
         }
         col = tdc_col_map.get(name)
         if col:
+            from rdkit import Chem
             df = pd.read_parquet(local_p)
             sub = df[["canonical_smiles", col]].dropna().rename(columns={"canonical_smiles": "Drug", col: "Y"})
+            sub = sub[sub["Drug"].map(lambda s: Chem.MolFromSmiles(s) is not None)].reset_index(drop=True)
             sub = sub.sample(frac=1.0, random_state=seed).reset_index(drop=True)
             n = len(sub)
             n_tr = int(0.80 * n); n_va = int(0.10 * n)
@@ -73,10 +75,11 @@ def train_endpoint(cfg, endpoint, desc_scaler, device="cuda", seeds=(0, 1, 2, 3,
 @torch.no_grad()
 def predict_endpoint(bundle, smiles, desc_scaler, device="cuda", chunk_size=512):
     from ..baselines.features import rdkit_descriptors
+    members = [m.to(device) for m in bundle["members"]]
     if len(smiles) <= chunk_size:
         b = to_torch(collate_graphs([mol_to_graph(s) for s in smiles]), device)
-        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(smiles)), device=device)
-        outs = np.stack([m(b, d).cpu().numpy() for m in bundle["members"]])
+        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(smiles)), dtype=torch.float32, device=device)
+        outs = np.stack([m(b, d).cpu().numpy() for m in members])
         if bundle["task"] == "cls": outs = 1 / (1 + np.exp(-outs))
         else: outs = outs * bundle["sd"] + bundle["mu"]
         return outs.mean(0), outs.std(0)
@@ -85,8 +88,8 @@ def predict_endpoint(bundle, smiles, desc_scaler, device="cuda", chunk_size=512)
     for i in range(0, len(smiles), chunk_size):
         chunk = smiles[i:i + chunk_size]
         b = to_torch(collate_graphs([mol_to_graph(s) for s in chunk]), device)
-        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(chunk)), device=device)
-        outs = np.stack([m(b, d).cpu().numpy() for m in bundle["members"]])
+        d = torch.tensor(desc_scaler.transform(rdkit_descriptors(chunk)), dtype=torch.float32, device=device)
+        outs = np.stack([m(b, d).cpu().numpy() for m in members])
         if bundle["task"] == "cls": outs = 1 / (1 + np.exp(-outs))
         else: outs = outs * bundle["sd"] + bundle["mu"]
         means.append(outs.mean(0))

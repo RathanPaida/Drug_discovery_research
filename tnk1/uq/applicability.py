@@ -66,8 +66,9 @@ class ApplicabilityDomain:
         Prefer d_fp when you need a hard in/out decision."""
         Zs = (Z - self.mu) / self.sd
         d_lat = _knn_mean(_eud(Zs, self.Z), self.k) / self.scale
-        if self.d_lat_clip:
-            d_lat = np.minimum(d_lat, self.d_lat_clip * self.d_thr_lat)
+        clip = getattr(self, "d_lat_clip", 50.0)
+        if clip:
+            d_lat = np.minimum(d_lat, clip * self.d_thr_lat)
         return (d_lat, _knn_mean(_tan_dist(FP, self.FP), self.k))
 
     def in_domain(self, Z, FP):
