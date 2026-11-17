@@ -82,6 +82,14 @@ def hinge_matches(mol) -> list[str]:
     return [n for n, q in _hinge_patterns().items() if mol.HasSubstructMatch(q)]
 
 
+def rotatable_bonds(mol) -> int:
+    """Rotatable-bond count. Each one costs roughly 0.5-1.0 kcal/mol of conformational
+    entropy on binding, so a flexible ligand pays an affinity penalty that a 2D potency
+    model never sees. 8 of the 40 shipped Cycle-01 compounds carry more than 7."""
+    from rdkit.Chem import Descriptors
+    return int(Descriptors.NumRotatableBonds(mol))
+
+
 def medchem_profile(smiles: str) -> dict | None:
     from rdkit import Chem
     from rdkit.Chem import QED, Descriptors
@@ -89,4 +97,5 @@ def medchem_profile(smiles: str) -> dict | None:
     if m is None: return None
     a = alerts(m)
     return {"qed": float(QED.qed(m)), "sa": sa_score(m), "mw": float(Descriptors.MolWt(m)),
-            "n_alerts": len(a), "alerts": ";".join(a), "hinge": hinge_match(m)}
+            "n_alerts": len(a), "alerts": ";".join(a), "hinge": hinge_match(m),
+            "n_rot": rotatable_bonds(m)}
