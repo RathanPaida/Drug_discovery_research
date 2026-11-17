@@ -42,7 +42,13 @@ def _toml_path(p) -> str:
     slashes (valid on Windows for every API Python and REINVENT use) *and* emit a literal
     string, which performs no escape processing at all, so neither can recur.
     """
-    s = Path(p).as_posix()
+    # Path.as_posix() only normalises separators that *Path* recognised as such.
+    # On a POSIX host (macOS / Linux), PurePosixPath treats a Windows-native path
+    # like "D:\ML_Research\data\processed" as a single opaque component — the
+    # backslashes are NOT separators to it, so .as_posix() returns them unchanged.
+    # We therefore replace backslashes explicitly, which is safe: a forward slash
+    # is a valid path separator for every Windows API that Python and REINVENT use.
+    s = str(p).replace("\\", "/")
     if "'" in s:                       # literal strings cannot contain a single quote
         raise ValueError(f"path contains a single quote, which TOML literal strings cannot escape: {s!r}")
     return f"'{s}'"
@@ -82,7 +88,7 @@ def write_rl_toml(path, cfg, prior, agent, client_python, client_script, server_
     r = cfg["rl"]; d = r["diversity"]
     # params.args is a single string REINVENT passes to the executable: the script path inside
     # it must also be POSIX-normalised, and the whole thing goes in a literal string.
-    _args = f"{Path(client_script).as_posix()} --url {server_url}"
+    _args = f"{str(client_script).replace(chr(92), '/')} --url {server_url}"
     Path(path).write_text(f'''run_type = "staged_learning"
 use_cuda = true
 tb_logdir = "tb_rl"
