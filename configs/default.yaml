@@ -112,14 +112,44 @@ admet:
     herg: {tdc: ["Tox", "hERG_Karim"], task: cls}
     ames: {tdc: ["Tox", "AMES"], task: cls}
 filters:
-  sa_max: 4.2
+  sa_max: 4.2                 # display/reporting threshold (NOT the hard gate; see sa_max_hard)
   mw_max_hard: 600
-  # Hard-gate p(hERG) ceiling. Was previously unset and resolved by a code-level
-  # `.get("herg_max", 0.85)` default, so the gate admitted p(hERG) up to 0.85 while the
-  # TPP table in tnk1/admet/admet.py asks for hERG < 0.20. Pinned here at the historical
-  # 0.85 so locked Cycle-01 numbers still reproduce; see OPEN DECISION in
-  # PIPELINE_AUDIT.md before tightening it towards the TPP for Cycle 02.
-  herg_max: 0.85
+
+  # ---- TIER A: the absurdity gate (tnk1.rl.reward.hard_gate) ----------------------
+  # These are deliberately LOOSER than the TPP. A hard gate deletes molecules, it does not
+  # shape them: everything it rejects scores R = 0 and contributes no more gradient than a
+  # molecule that is merely bad. Measured on the Cycle-01 contract (the best 40 of 12,000),
+  # applying the TPP thresholds jointly as a hard gate passes only 5 of 40; on raw
+  # generator output joint survival is well under 1%, which would leave a 128-molecule DAP
+  # batch with ~1 non-zero reward and no learnable signal.
+  #
+  # So Tier A cuts only the indefensible tail, Tier B (rl.weights, r_safety_tpp, r_sa)
+  # carries the gradient toward the TPP, and Tier C (`tpp` below) enforces the TPP strictly
+  # at final selection, where the pool is already optimised.
+  herg_max: 0.50              # was 0.85 -- admitted near-certain cardiotoxicity
+  ames_max: 0.40              # was hardcoded 0.50 in reward.hard_gate
+  sa_max_hard: 5.5            # matches r_sa's upper rail; anything above is unmakeable
+  rot_max: 10                 # entropy absurdity cut, not the TPP's 7
+  qed_min: 0.20               # was absent; 0.20 removes non-drug-like matter only
+
+# ---- TIER C: target product profile, enforced at final selection ------------------
+# Applied by tnk1.rl.reward.tpp_select at Stage 8 contract assembly, NOT during RL.
+# On the Cycle-01 contract these reject 35 of 40 shipped compounds, which is the correct
+# verdict: 29 of them exceed the hERG ceiling and 15 exceed SA 4.5. Cycle 02 must select
+# against this, having first used Tier B to move the population toward it.
+tpp:
+  herg_max: 0.20
+  ames_max: 0.30
+  sa_max: 4.5
+  qed_min: 0.35
+  rot_max: 7
+  mw_max: 600.0
+
+# ---- Cycle-01 reproduction -------------------------------------------------------
+# The locked Cycle-01 numbers were produced with the pre-fix gate. To reproduce them,
+# override `filters` with these values and pass components=COMPONENTS (not COMPONENTS_V2).
+cycle01_repro:
+  filters: {sa_max: 4.2, mw_max_hard: 600, herg_max: 0.85, ames_max: 0.50}
 
 # ---------------- Stage 6/7 ----------------
 rl:
@@ -158,8 +188,37 @@ rl:
   # belong in hard_gate. Audit any change with tnk1.rl.reward.component_signal and aim to
   # keep the surviving components within ~2x of each other.
   weights: {pot: 3.0, sel: 2.0, ad: 1.5, sa: 1.0, adme: 1.0, safety: 1.5, qed: 0.5}
+
+  # Cycle-02 component set and weights (tnk1.rl.reward.COMPONENTS_V2). `weights` above is
+  # the Cycle-01 set, kept so that run reproduces. Set rl.use_v2 to switch.
+  #
+  # adme (realised signal 0.019) and qed (0.016) are GONE, not reweighted: they sat at the
+  # noise floor, so they bought nothing with their 1.5 of the weight budget. Both are now
+  # enforced in hard_gate / tpp_select, where a flat criterion is free.
+  # hinge is NEW and soft (r_hinge floors at 0.1 rather than gating): only 27.5% of the
+  # Cycle-01 pool matched any hinge SMARTS, so a hard gate would delete three quarters of
+  # every batch and also forbid the generator from finding an unlisted hinge motif.
+  # ad SURVIVES at a reduced 1.0. It dominated Cycle 01 (0.380) only because d_lat had
+  # blown up to 240,832 against a 1.007 threshold; that is fixed. It is the only term
+  # stopping the policy optimising a critic whose test Spearman is 0.264 off-distribution.
+  use_v2: true
+  weights_v2: {pot: 3.0, sel: 2.5, hinge: 2.0, ad: 1.0, sa: 1.5, safety: 2.5}
+
+  # pot_c/sel_c MUST be recalibrated at runtime (see the note above). With COMPONENTS_V2
+  # the scorer does this itself when rl.calibrate_at_runtime is true, so the script path
+  # no longer depends on the notebook having done it.
+  calibrate_at_runtime: true
+  calibrate_target_frac: 0.30
+  calibrate_n: 10000
+
   diversity: {bucket_size: 25, min_score: 0.55}
-  veto: null                                    # e.g. {safety: 0.05, sa: 0.05}; manual's formula alone does NOT give near-zero reward on a failed component
+
+  # ENABLED for Cycle 02. With normalised exponents a collapsed component only scales R by
+  # (1e-4)^(w/sum w) -- about 0.27x for safety -- so without a veto a molecule can fail
+  # safety outright and still outrank a clean one on potency. The thresholds are absurdity
+  # cuts against the SHAPED terms: r_safety_tpp < 0.10 is roughly p(hERG) > 0.40 once the
+  # other endpoints are reasonable, and r_sa < 0.05 is SA > 5.3.
+  veto: {safety: 0.10, sa: 0.05}
 
 # ---------------- Stage 7 alternative backend: rl_min ----------------
 # In-process DAP trainer (rl_min/). Unlike the REINVENT path it needs no second conda env

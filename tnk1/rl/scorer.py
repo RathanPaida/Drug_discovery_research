@@ -13,11 +13,56 @@ class Scorer:
         self.step = 0
         self.tnk1, self.off = cfg["targets"]["tnk1"], cfg["offtarget_panel"]
         self.ad_ref_fn = ad_ref_fn
+        self.use_v2 = bool(cfg["rl"].get("use_v2", False))
+        self.components = R.COMPONENTS_V2 if self.use_v2 else R.COMPONENTS
+        self.calibrated = False
+
+    def _weights(self):
+        rl = self.cfg["rl"]
+        return rl["weights_v2"] if self.use_v2 else rl["weights"]
+
+    def calibrate(self, smiles: list[str], target_frac: float | None = None) -> dict:
+        """Re-centre the potency and selectivity sigmoids on this generator's own output.
+
+        THIS IS NOT OPTIONAL, and until now it only ever happened inside the v2 notebook,
+        which mutated its in-memory cfg. Every script entry point (run_stage7_rl.py,
+        run_stage8_cycle.py) therefore still ran with the Cycle-01 literals pot_c=7.0 and
+        sel_c=1.2 -- and sel_c=1.2 sits above the ENTIRE pool's maximum mu_sel of 0.25, so
+        r_sel averaged 0.0089 and the 2.0 weight bought a near-constant 0.38x penalty with
+        no gradient in it. Calibrating here closes that gap for every caller.
+
+        Call once with a prior sample before training. Returns the centres it set.
+        """
+        rl = self.cfg["rl"]
+        frac = rl.get("calibrate_target_frac", 0.30) if target_frac is None else target_frac
+        res = self.score(smiles, advance=False)
+        # Rows that failed to parse are left as exact 0.0 by `score`, and a real predicted
+        # pIC50 is never exactly 0.0; calibrating on those zeros would drag both centres
+        # down and undo the fix this method exists to apply.
+        mu = np.asarray(res["mu"], float)
+        use = np.isfinite(mu) & (mu != 0.0)
+        if use.sum() < 50:
+            raise ValueError(
+                f"only {int(use.sum())} scorable molecules in the calibration sample; "
+                "calibrating a sigmoid centre on this few is meaningless")
+        rl["pot_c"] = R.calibrate_centre(mu[use], frac)
+        rl["sel_c"] = R.calibrate_centre(np.asarray(res["mu_sel"])[use], frac)
+        self.calibrated = True
+        return {"pot_c": rl["pot_c"], "sel_c": rl["sel_c"], "n": int(use.sum()),
+                "target_frac": frac}
 
     def score(self, smiles: list[str], advance: bool = True) -> dict:
         from ..admet.admet import predict_endpoint
         from ..admet.filters import medchem_profile
-        rl, w = self.cfg["rl"], self.cfg["rl"]["weights"]
+        rl, w = self.cfg["rl"], self._weights()
+        tpp = self.cfg.get("tpp", {})
+        if advance and rl.get("calibrate_at_runtime", False) and not self.calibrated:
+            raise RuntimeError(
+                "rl.calibrate_at_runtime is set but Scorer.calibrate() was never called. "
+                "Scoring would use the Cycle-01 literals pot_c=7.0 / sel_c=1.2, and sel_c "
+                "sits above the whole pool's maximum mu_sel, which flattens r_sel to a "
+                "constant. Call scorer.calibrate(prior_sample) before training."
+            )
         if advance:
             self.step += 1                                   # one REINVENT batch == one step
             beta = R.beta_schedule(self.step, rl["beta_explore"], rl["beta_final"], rl["beta_explore_steps"], rl["steps"])
@@ -26,7 +71,8 @@ class Scorer:
         prof = [medchem_profile(s) for s in smiles]
         valid = np.array([p is not None for p in prof])
         n = len(smiles)
-        out = {c: np.zeros(n) for c in R.COMPONENTS}; out["R"] = np.zeros(n); out["mu"] = np.zeros(n); out["sigma_epi"] = np.zeros(n)
+        out = {c: np.zeros(n) for c in set(R.COMPONENTS) | set(R.COMPONENTS_V2)}
+        out["R"] = np.zeros(n); out["mu"] = np.zeros(n); out["sigma_epi"] = np.zeros(n)
         for k in ("sigma_ale", "mu_sel", "sigma_sel", "d_lat"): out[k] = np.zeros(n)
         if not valid.any():
             return {"beta": beta, **out}
@@ -48,20 +94,30 @@ class Scorer:
             "ad": R.r_ad(d_lat, self.ad.d_thr_lat, rl["ad_scale"]),
             "sa": R.r_sa(P("sa")),
             "adme": aps["adme"],
-            "safety": aps["safety"],
+            "safety": (R.r_safety_tpp(herg, ames, aps["ep"]["cyp3a4"],
+                                      tpp.get("herg_max", 0.20), tpp.get("ames_max", 0.30))
+                       if self.use_v2 else aps["safety"]),
             "qed": P("qed"),
+            "hinge": R.r_hinge(P("hinge")),
         }
+        f = self.cfg["filters"]
         gate = R.hard_gate(
             np.ones(len(vi)),
             P("n_alerts"),
             P("mw"),
             ames,
-            self.cfg["filters"]["mw_max_hard"],
+            f["mw_max_hard"],
             p_herg=herg,
-            p_herg_max=self.cfg["filters"]["herg_max"],
+            p_herg_max=f["herg_max"],
+            # Tier-A criteria are only applied when configured, so the Cycle-01 config
+            # (which has none of these keys) reproduces the old gate exactly.
+            p_ames_max=f.get("ames_max", 0.5),
+            sa=P("sa"), sa_max=f.get("sa_max_hard"),
+            n_rot=(P("n_rot") if "n_rot" in prof[vi[0]] else None), rot_max=f.get("rot_max"),
+            qed=P("qed"), qed_min=f.get("qed_min"),
         )
-        total = R.aggregate(comps, w, gate, rl.get("veto"))
-        for c in R.COMPONENTS: out[c][vi] = comps[c]
+        total = R.aggregate(comps, w, gate, rl.get("veto"), components=self.components)
+        for c in self.components: out[c][vi] = comps[c]
         out["R"][vi], out["mu"][vi], out["sigma_epi"][vi] = total, d["mu"], d["sigma_epi"]
         out["sigma_ale"][vi], out["mu_sel"][vi], out["sigma_sel"][vi], out["d_lat"][vi] = d["sigma_ale"], sel["mu_sel"], sel["sigma_sel"], d_lat
         return {"beta": beta, **out}
