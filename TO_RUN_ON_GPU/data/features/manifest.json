@@ -1,0 +1,26 @@
+{
+ "tnk1_curated.parquet": {
+  "size_bytes": 57748,
+  "sha256": "e1de4cb2445d1f478bb33114b71d6fe94105a1923ed31fe1e8c232b0332c24ec"
+ },
+ "kinome_similarity_scores.parquet": {
+  "size_bytes": 65167,
+  "sha256": "3b1aef654bbb0b763c215b493f450e469e94b9ee0c5b6b02fcc80b80080852b7"
+ },
+ "admet_7endpoints.parquet": {
+  "size_bytes": 2593938,
+  "sha256": "5008dea536b424baa7c01a50d3db486314aec9b0d51d2d743fc7f36bb9350a41"
+ },
+ "unique_molecules_788k.parquet": {
+  "size_bytes": 64355689,
+  "sha256": "9391e01b8e713157ade34b7218fba28e6d2f2ce8024149a2d4fa0d7aabb13dfd"
+ },
+ "unique_molecules_fingerprints_2048bit.npz": {
+  "size_bytes": 44648451,
+  "sha256": "cb71026e1ee7dba45b2c8c13ba267b85139154bb75f4cf4e3b2dd568d9da7e3a"
+ },
+ "unique_molecules_descriptors_200d.npz": {
+  "size_bytes": 248156073,
+  "sha256": "2f61735fe3cf24e4d48c3e2d9449165c048a6656d2e34257b0a57a66c6eb641b"
+ }
+}

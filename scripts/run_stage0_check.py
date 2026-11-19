@@ -38,16 +38,37 @@ MODULES = [
 ]
 CORE = {m for m, need in MODULES if need == "core"}
 
-# Feature-store files each stage reads (names as they appear in features/manifest.json).
+# Feature-store files each stage actually OPENS (names as in features/manifest.json).
+#
+# This map was advisory and had drifted: it named four files no code path reads, so a
+# checkout missing one of them reported a stage BLOCKED that would in fact have run, and
+# trimming the store for transfer looked unsafe when it was not. Verified by grepping
+# every reader in tnk1/, rl_min/ and scripts/:
+#
+#   tnk1_baseline_features_2248d.npz    nothing reads it. run_stage2_baselines.py builds
+#                                       its own features with F.morgan_count /
+#                                       F.rdkit_descriptors from the frozen table.
+#   kinome_multitask_300k.parquet       run_stage1_data.py only (the full_kinome=false
+#                                       fallback), not the transfer stage.
+#   offtargets_curated.parquet          nothing reads it. Selectivity takes its panel from
+#                                       cfg["offtarget_panel"] and the rows from Ctx.df.
+#   tnk1_graph_dmpnn.pkl                nothing reads it (was not listed here either).
+#   tnk1_nested_scaffold_splits_5x5.json  nothing reads it; splits come from
+#                                       data/processed/splits_<version>.json.
 STAGE_FEATURES = {
+    # Stage 1 ingest. Needs the full measurements file; a bundle shipping only the frozen
+    # kinome_long_<v>.parquet will correctly report this BLOCKED, which is accurate --
+    # Stage 1 cannot re-run without its source.
     "data": ["kinome_all_measurements_3.95M.parquet", "tnk1_curated.parquet",
              "kinome_similarity_scores.parquet"],
-    "baselines": ["tnk1_baseline_features_2248d.npz"],
-    "transfer": ["kinome_multitask_300k.parquet", "kinome_similarity_scores.parquet"],
+    # computes its own fingerprints/descriptors from the frozen table
+    "baselines": [],
+    # kinase_features.build_kinase_store reads the similarity scores
+    "transfer": ["kinome_similarity_scores.parquet"],
     "uq": [],
     "admet": ["admet_7endpoints.parquet"],
-    "rl": ["unique_molecules_788k.parquet", "unique_molecules_fingerprints_2048bit.npz",
-           "offtargets_curated.parquet"],
+    # 788k corpus: RL prior + DescStore keys. Fingerprints: the novelty Tanimoto scan.
+    "rl": ["unique_molecules_788k.parquet", "unique_molecules_fingerprints_2048bit.npz"],
 }
 
 # Artifacts each stage needs its predecessors to have produced, under data/processed/.
@@ -113,13 +134,101 @@ def _check_feature_store() -> dict[str, str]:
     return status
 
 
+def _config_consistency(cfg: dict) -> list[str]:
+    """Cross-field checks for values that must agree but are declared separately.
+
+    A config key that nothing validates and nothing reads is indistinguishable from a
+    typo. `targets.tnk2` is the example: it is declared, and the off-target panel lists
+    Q07912 again as a bare literal, so the two could drift apart with no symptom. The
+    reward's component sets and weight tables have the same problem -- a component listed
+    in `rl.weights_v2` but absent from COMPONENTS_V2 silently contributes nothing.
+    """
+    out: list[str] = []
+    t = cfg.get("targets", {}) or {}
+    panel = list(cfg.get("offtarget_panel", []) or [])
+
+    tnk1 = t.get("tnk1")
+    if not tnk1:
+        out.append("targets.tnk1 is unset")
+    elif tnk1 in panel:
+        out.append(f"targets.tnk1 ({tnk1}) is also in offtarget_panel; the selectivity "
+                   f"margin would include the on-target and be identically <= 0")
+
+    tnk2 = t.get("tnk2")
+    if tnk2 and tnk2 not in panel:
+        out.append(f"targets.tnk2 ({tnk2}) is declared but missing from offtarget_panel "
+                   f"{panel}; TNK2 is the closest homolog and the selectivity margin "
+                   f"silently ignores it")
+
+    if len(panel) != len(set(panel)):
+        dup = sorted({p for p in panel if panel.count(p) > 1})
+        out.append(f"offtarget_panel has duplicate accessions {dup}; max-over-panel would "
+                   f"double-count them")
+
+    # reward component set vs weight table
+    try:
+        from tnk1.rl.reward import COMPONENTS, COMPONENTS_V2
+        rl = cfg.get("rl", {}) or {}
+        for key, comps in (("weights", COMPONENTS), ("weights_v2", COMPONENTS_V2)):
+            w = rl.get(key)
+            if not isinstance(w, dict):
+                continue
+            missing = [c for c in comps if c not in w]
+            extra = [c for c in w if c not in comps]
+            if missing:
+                out.append(f"rl.{key} lacks a weight for {missing}; `aggregate` does a "
+                           f"required-key lookup and would raise mid-run")
+            if extra:
+                out.append(f"rl.{key} declares weight(s) for {extra}, which are not in "
+                           f"the matching component set -- they contribute nothing")
+    except Exception:
+        pass
+    return out
+
+
+def _check_admet_bundle(proc: Path, cfg: dict) -> int:
+    """Confirm every endpoint the reward REQUIRES is present in the trained bundle.
+
+    `tnk1.rl.reward.require_endpoints` is fail-closed at scoring time, but that is hours
+    into a run. The same contract is cheap to assert here: a bundle missing `herg` makes
+    `r_safety` unscoreable, and the pre-fix behaviour of `ep.get(name, zeros)` scored a
+    missing endpoint as PERFECT safety. Checking at preflight turns an eventual wrong
+    answer into an immediate refusal.
+    """
+    p = proc / "admet_bundles.pt"
+    if not p.exists():
+        print(f"  [skip] {p} absent; stage 5 has not run")
+        return 0
+    try:
+        import torch
+        from tnk1.rl.reward import REQUIRED_ENDPOINTS
+        bundles = torch.load(p, weights_only=False, map_location="cpu")
+        have = set(bundles) if isinstance(bundles, dict) else set()
+        missing = [e for e in REQUIRED_ENDPOINTS if e not in have]
+        configured = set(cfg.get("admet", {}).get("endpoints", {}))
+        if missing:
+            print(f"  [FAIL] admet_bundles.pt lacks reward-required endpoint(s): {missing}")
+            print(f"         present={sorted(have)}  configured={sorted(configured)}")
+            print(f"         re-run `make admet`; scoring is fail-closed and will refuse these.")
+            return 1
+        print(f"  [ok]   admet bundle carries all {len(REQUIRED_ENDPOINTS)} "
+              f"reward-required endpoints ({len(have)} total)")
+    except Exception as e:
+        print(f"  [FAIL] admet_bundles.pt unreadable: {type(e).__name__}: {e}")
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", default="v1")
-    ap.add_argument("--config", default="configs/default.yaml")
+    ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--require", choices=sorted(STAGE_FEATURES), default=None,
                     help="exit 1 unless this stage is ready to run")
+    ap.add_argument("--strict", action="store_true",
+                    help="also fail on ANY corrupt feature file, even one no requested "
+                         "stage reads, and verify the ADMET endpoint bundle is loadable")
     args = ap.parse_args(argv)
 
     missing_core = _check_modules()
@@ -132,9 +241,15 @@ def main(argv=None) -> int:
         # these are read via required-key access at runtime; surface a typo here instead
         for key in ("mw_max_hard", "herg_max", "sa_max"):
             cfg["filters"][key]
-        print(f"  [ok]   {args.config} loaded; filters complete; processed={proc}")
+        for problem in _config_consistency(cfg):
+            print(f"  [FAIL] {problem}")
+            return 1
+        # Print the RESOLVED path, not args.config: that is None by default now, and
+        # "[ok] None loaded" tells the operator nothing about which config was used.
+        print(f"  [ok]   {cfg.get('_config_path', args.config)} loaded; "
+              f"filters complete; processed={proc}")
     except Exception as e:
-        print(f"  [FAIL] {args.config}: {type(e).__name__}: {e}")
+        print(f"  [FAIL] {args.config or '<default config>'}: {type(e).__name__}: {e}")
         return 1
 
     feat_status = _check_feature_store()
@@ -145,7 +260,13 @@ def main(argv=None) -> int:
     for stage in STAGE_FEATURES:
         need_feat = [f for f in STAGE_FEATURES[stage] if feat_status.get(f) != "ok"]
         need_art = [a for a in artifacts[stage] if not (proc / a).exists()]
-        if stage == "rl" and not need_art and not (proc / "ensemble").glob("member_*.pt"):
+        # `Path.glob()` returns a GENERATOR, and a generator is always truthy -- so the
+        # previous `not (proc / "ensemble").glob(...)` was unconditionally False and this
+        # check never fired once. An `ensemble/` directory containing zero members
+        # reported READY, and Stage 7 then failed inside `Ensemble.__init__`'s assert
+        # after the operator had been told generation could run. `any()` consumes the
+        # generator and actually answers the question.
+        if stage == "rl" and not need_art and not any((proc / "ensemble").glob("member_*.pt")):
             need_art = ["ensemble/member_*.pt"]
         ready[stage] = not need_feat and not need_art
         mark = "READY" if ready[stage] else "BLOCKED"
@@ -154,6 +275,20 @@ def main(argv=None) -> int:
             print(f"              missing feature file: {f}")
         for a in need_art:
             print(f"              missing artifact:     {proc / a}")
+
+    # PIPELINE_AUDIT.md §6.6: "Add a Stage-0 assertion that calls verify_features(strict=True)
+    # and require_endpoints, so a run cannot *start* without its inputs. The checks exist;
+    # wire them into run_stage0_check.py." This is that wiring.
+    if args.strict:
+        print("\nStrict preflight")
+        corrupt = {k: v for k, v in feat_status.items() if v not in ("ok", "absent")}
+        if corrupt:
+            print(f"  [FAIL] corrupt feature files: {corrupt}")
+            return 1
+        print(f"  [ok]   no corrupt feature files ({len(feat_status)} manifest entries)")
+        rc = _check_admet_bundle(proc, cfg)
+        if rc:
+            return rc
 
     print()
     if missing_core:

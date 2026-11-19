@@ -22,15 +22,22 @@ def pool_from_reinvent(paths):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--cycle", type=int, required=True)
     ap.add_argument("--rl-csv", nargs="*"); ap.add_argument("--docking", default=None); ap.add_argument("--results", default=None)
-    ap.add_argument("--aizynth-config", default="configs/aizynth.yml")
+    ap.add_argument("--aizynth-config", default=None,
+                    help="default: <repo>/configs/aizynth.yml")
     # Retrosynthetic feasibility FILTERS candidates; it feeds no model. Skipping changes
     # which molecules reach docking and invalidates nothing upstream. It is also the
     # slowest step in the pipeline (5-30 s x al.pareto_keep candidates = 2-12 h), and
     # AiZynthFinder needs ~1 GB of model files that are not in this repository.
     ap.add_argument("--skip-retro", action="store_true",
                     help="bypass the AiZynthFinder synthesisability screen")
-    ap.add_argument("--config", default="configs/default.yaml"); ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); a = ap.parse_args()
+    ap.add_argument("--config", default=None)       # None -> tnk1.utils.paths.default_config()
+    ap.add_argument("--version", default="v1")
+    ap.add_argument("--device", default="cuda")
+    a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg, al = C.cfg, C.cfg["al"]
+    from tnk1.utils.paths import repo_root
+    if a.aizynth_config is None:
+        a.aizynth_config = str(repo_root() / "configs" / "aizynth.yml")
     cyc = C.runs / f"cycle_{a.cycle:02d}"; cyc.mkdir(parents=True, exist_ok=True)
 
     def load_stack():
@@ -78,7 +85,15 @@ def main():
         P["ei"] = ACQ.expected_improvement(P.mu.values, P.sigma_epi.values, ybest, al["ei_xi"])
         P["ucb"] = ACQ.ucb(P.mu.values, P.sigma_epi.values, al["ucb_kappa"]); P["lcb"] = ACQ.lcb(P.mu.values, P.sigma_epi.values, al["exploit_lcb_k"])
         P["cluster"] = B.butina_clusters(list(P.smiles), al["butina_dist"]); P["passes_filters"] = True
-        sel = B.select_batch(P, al["batch"], al["max_per_cluster"], set(ytr.scaffold), seed=a.cycle)
+        # al.exploit_min_sel and al.explore_min_mu were declared in configs/default.yaml but
+        # NEVER PASSED here, so `select_batch`'s own defaults applied and the two config
+        # knobs did nothing. They happened to hold the same values, which is why it was
+        # invisible: editing the config changed no behaviour. Same defect class as the
+        # `censor_tau` argument documented in tnk1/data/activity.py.
+        sel = B.select_batch(P, al["batch"], al["max_per_cluster"], set(ytr.scaffold),
+                             seed=a.cycle,
+                             exploit_min_sel=al["exploit_min_sel"],
+                             explore_min_mu=al["explore_min_mu"])
         from rdkit import Chem
         ct = K.build_contract(sel, a.cycle, cal, lambda s: Chem.MolToInchiKey(Chem.MolFromSmiles(s)))
         ct.to_csv(cyc / "contract_to_team_b.csv", index=False); print(ct.batch_slice.value_counts().to_dict(), "->", cyc / "contract_to_team_b.csv")

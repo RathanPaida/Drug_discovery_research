@@ -11,7 +11,7 @@ from tnk1.rl import reinvent_io as RI
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); ap.add_argument("--base-prior", default="priors/reinvent.prior"); a = ap.parse_args()
     C = Ctx(a.config, a.version, "cpu"); out = C.proc / "prior"
     if a.cmd == "prepare":

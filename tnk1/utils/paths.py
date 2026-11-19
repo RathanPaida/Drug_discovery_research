@@ -26,7 +26,8 @@ import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-__all__ = ["repo_root", "features_dir", "feature_file", "load_manifest", "verify_features"]
+__all__ = ["repo_root", "features_dir", "feature_file", "load_manifest", "verify_features",
+           "resolve_path", "default_config"]
 
 _ENV_VAR = "TNK1_FEATURES_DIR"
 
@@ -34,6 +35,44 @@ _ENV_VAR = "TNK1_FEATURES_DIR"
 def repo_root() -> Path:
     """The checkout root (.../tnk1/utils -> up 2)."""
     return Path(__file__).resolve().parents[2]
+
+
+def resolve_path(p, *, root: Optional[Path] = None) -> Path:
+    """Anchor a possibly-relative path to the REPO ROOT, not the current directory.
+
+    Why this exists
+    ---------------
+    Every path in `configs/default.yaml` is relative (`data/processed`, `runs`, ...), and
+    `Ctx` used to pass them straight to `Path(...)`. A relative Path resolves against the
+    *process* working directory, so `python scripts/run_stage3_transfer.py` launched from
+    `scripts/` did not fail -- it silently resolved `data/processed` to
+    `scripts/data/processed`, created it (`mkdir(parents=True)`), and wrote a parallel set
+    of artifacts there. Stage 0 would then report the real store as ready while the stage
+    that followed read and wrote an empty one.
+
+    That is the same failure shape as every defect in PIPELINE_AUDIT.md: no exception, no
+    log line, a wrong answer. Anchoring to the repo root makes the pipeline's location
+    depend on the installed package, not on where the operator happened to be standing.
+
+    Absolute paths and `$TNK1_*` overrides are returned untouched, so an out-of-tree data
+    directory still works. `~` is expanded.
+    """
+    q = Path(str(p)).expanduser()
+    if q.is_absolute():
+        return q
+    return ((root or repo_root()) / q).resolve()
+
+
+def default_config() -> Path:
+    """The shipped config, located relative to the package rather than the caller's CWD.
+
+    `$TNK1_CONFIG` overrides it, so an experiment can point every entry point at an
+    alternative config without editing argv in nine scripts.
+    """
+    env = os.environ.get("TNK1_CONFIG")
+    if env:
+        return Path(env).expanduser().resolve()
+    return repo_root() / "configs" / "default.yaml"
 
 
 def features_dir(required: bool = False) -> Path:
@@ -45,15 +84,31 @@ def features_dir(required: bool = False) -> Path:
             raise FileNotFoundError(f"${_ENV_VAR} points at a missing directory: {p}")
         return p
 
-    candidates = [
+    # Repo-anchored candidates first. The two CWD-relative ones are kept for ad-hoc runs
+    # from a data directory, but they WARN: a relative candidate resolves against the
+    # process working directory, so it can silently point at a different feature store
+    # than the one the repo ships -- the same class of failure as the CWD-relative config
+    # paths that `resolve_path` exists to prevent. Everything the pipeline does resolves
+    # the repo-anchored path first, so a warning here means something unusual is going on.
+    anchored = [
         repo_root() / "data" / "features",
-        Path("data/features"),
-        Path("features"),
-        repo_root() / "ml_research" / "features",
+        repo_root() / "ml_research" / "features",      # pre-reorganisation layout
     ]
-    for c in candidates:
+    relative = [Path("data/features"), Path("features")]
+    for c in anchored:
         if c.exists():
             return c
+    for c in relative:
+        if c.exists():
+            import warnings
+            warnings.warn(
+                f"feature store resolved to the CWD-relative path {c.resolve()} because "
+                f"none of {[str(a) for a in anchored]} exist. This depends on where the "
+                f"process was started; set ${_ENV_VAR} to make it explicit.",
+                RuntimeWarning, stacklevel=2,
+            )
+            return c
+    candidates = anchored + relative
     if required:
         raise FileNotFoundError(
             f"feature store not found; looked in {[str(c) for c in candidates]}. "

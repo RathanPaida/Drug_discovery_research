@@ -15,9 +15,23 @@ from tnk1.utils.common import load_config, save_locked, seed_everything
 from tnk1.data import extract, activity, standardize, splits as sp
 
 
+def _next_version(proc: Path, current: str) -> str:
+    """Suggest the next free `vN` so the error message names a usable alternative."""
+    import re
+    m = re.fullmatch(r"v(\d+)", str(current))
+    n = int(m.group(1)) + 1 if m else 2
+    while (proc / f"kinome_long_v{n}.parquet").exists():
+        n += 1
+    return f"v{n}"
+
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--config", default="configs/default.yaml")
-    ap.add_argument("--version", default="v1"); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
+    ap.add_argument("--version", default="v1")
+    ap.add_argument("--force", action="store_true",
+                    help="replace an existing frozen kinome_long_<version>.parquet. "
+                         "Every downstream artifact becomes stale; prefer a new --version.")
+    a = ap.parse_args()
     cfg = load_config(a.config); seed_everything(cfg["splits"]["seed"])
     d, proc = cfg["data"], Path(cfg["paths"]["processed"])
     raw_dir = Path(cfg["paths"]["raw"])
@@ -167,12 +181,30 @@ def main():
             df_mt = pd.read_parquet(src_path, columns=cols)
             n_raw = len(df_mt)
 
+            # Measurability filter. The previous `keep = np.isfinite(pact)` was a no-op
+            # against this store: non-dose-response rows are encoded with pActivity
+            # exactly 0.0, not NaN, and isfinite(0.0) is True. 70.3% of the file therefore
+            # survived as "exact" measurements of an IC50 of one molar. See
+            # tnk1.data.activity.filter_measurable for the full measurement and both
+            # defects it closes.
+            df_mt, rep = activity.filter_measurable(
+                df_mt, type_col=c_type or "activity_type", pact_col=c_pact,
+                types=tuple(d.get("dose_response_types", activity.DOSE_RESPONSE_TYPES)),
+                pact_min=float(d.get("pact_min", activity.PACT_MIN)),
+                pact_max=float(d.get("pact_max", activity.PACT_MAX)),
+                target_col=c_uni,
+                drop_composite_targets=bool(d.get("drop_composite_targets", True)),
+            )
+            print(f"  measurability filter on {src_path.name}:")
+            print(activity.format_filter_report(rep))
+            if not len(df_mt):
+                raise SystemExit(
+                    f"{src_path.name}: no usable dose-response rows survived the "
+                    f"measurability filter. Check data.dose_response_types / pact_min / "
+                    f"pact_max in the config against the store's activity_type values."
+                )
             pact = pd.to_numeric(df_mt[c_pact], errors="coerce")
-            keep = np.isfinite(pact)
-            n_drop = int((~keep).sum())
-            df_mt, pact = df_mt[keep], pact[keep]
-            print(f"  {n_raw:,} rows -> {len(df_mt):,} with finite pActivity "
-                  f"({n_drop:,} dropped: %-inhibition / qualitative, no regression target)")
+            filter_report = rep
 
             m_keep = df_mt[c_uni] != cfg["targets"]["tnk1"]
             df_mt, pact = df_mt[m_keep], pact[m_keep]
@@ -217,13 +249,36 @@ def main():
     print(final.groupby("uniprot_id").size().sort_values(ascending=False).head(10))
 
     target_parquet = proc / f"kinome_long_{a.version}.parquet"
-    if target_parquet.exists():
-        target_parquet.unlink()
     sha_sidecar = Path(str(target_parquet) + ".sha256")
-    if sha_sidecar.exists():
-        sha_sidecar.unlink()
+
+    # `save_locked` exists to make this artifact immutable: it raises FileExistsError so a
+    # re-run cannot quietly replace the table that published results were computed from.
+    # This script used to `unlink()` both the parquet AND its .sha256 sidecar immediately
+    # before calling it, which defeated the guarantee completely -- a re-run overwrote the
+    # frozen table and wrote a NEW matching digest, so `verify_locked` still passed and
+    # nothing anywhere recorded that the data had changed underneath every downstream
+    # number. Replacing a frozen artifact is now an explicit, logged decision.
+    if target_parquet.exists():
+        if not a.force:
+            raise SystemExit(
+                f"{target_parquet} already exists and is frozen.\n"
+                f"  Its sha256 is pinned in {sha_sidecar.name} and every downstream artifact\n"
+                f"  (splits, ensemble, calibrator, contracts) was computed against it.\n"
+                f"  Write a new version instead:  --version {_next_version(proc, a.version)}\n"
+                f"  Or, if you really intend to replace it:  --force"
+            )
+        old = sha_sidecar.read_text().strip() if sha_sidecar.exists() else "<no sidecar>"
+        print(f"[stage1] --force: replacing frozen {target_parquet.name}")
+        print(f"[stage1]   previous sha256: {old}")
+        target_parquet.unlink()
+        if sha_sidecar.exists():
+            sha_sidecar.unlink()
 
     sha = save_locked(final, target_parquet)
+    if a.force:
+        print(f"[stage1]   new sha256:      {sha}")
+        print(f"[stage1]   every artifact derived from the previous table is now STALE; "
+              f"re-run stages 2-8 or restore the old table.")
 
     spl = sp.build_tnk1_splits(final, cfg["targets"]["tnk1"], cfg["splits"]["tnk1_test_frac"],
                                cfg["splits"]["n_outer"], cfg["splits"]["n_inner"], cfg["splits"]["seed"])

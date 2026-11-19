@@ -514,12 +514,57 @@ def generate_fig7():
     plt.close(fig)
     print("  [OK] Saved fig7_novelty_tanimoto_audit.png & .pdf")
 
+GENERATORS = {
+    "fig1": generate_fig1, "fig2": generate_fig2, "fig3": generate_fig3,
+    "fig4": generate_fig4, "fig5": generate_fig5, "fig6": generate_fig6,
+    "fig7": generate_fig7,
+}
+
+
+def main(argv=None) -> int:
+    """Regenerate the manuscript figures.
+
+    This script had an `if __name__ == "__main__"` guard but NO argument parsing, so
+    `python scripts/generate_paper_figures.py --help` ignored the flag and regenerated all
+    seven figures, overwriting the committed `paper/figures/*.{png,pdf}` that
+    `paper/tnk1_ai_discovery_ieee.tex` includes. Asking the script what it does rewrote the
+    manuscript's figures. (It happened during this pass and had to be reverted from git.)
+
+    Two of the three scripts that write published artifacts had the same shape --
+    `dock_40_molecules_tnk1.py` and `dock_controls.py` were the others. All three now parse
+    arguments and refuse to overwrite without `--force`.
+    """
+    global OUT_DIR
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Regenerate the 7 IEEE manuscript figures into paper/figures/.",
+        epilog="Overwriting committed figures requires --force.")
+    ap.add_argument("--only", nargs="*", choices=sorted(GENERATORS), default=None,
+                    help="regenerate only these (default: all 7)")
+    ap.add_argument("--out", default=None,
+                    help="output directory (default: paper/figures/)")
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite existing figure files")
+    a = ap.parse_args(argv)
+
+    if a.out:
+        OUT_DIR = Path(a.out)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    wanted = a.only or list(GENERATORS)
+    existing = sorted(p.name for f in wanted for p in OUT_DIR.glob(f"{f}_*"))
+    if existing and not a.force:
+        print(f"Refusing to run: {len(existing)} figure file(s) already exist in")
+        print(f"  {OUT_DIR}")
+        print("These are committed and included by paper/tnk1_ai_discovery_ieee.tex.")
+        print("Pass --force to regenerate, or --out <dir> to write elsewhere.")
+        return 1
+
+    for f in wanted:
+        GENERATORS[f]()
+    print(f"\n[SUCCESS] {len(wanted)} figure(s) written to {OUT_DIR}")
+    return 0
+
+
 if __name__ == "__main__":
-    generate_fig1()
-    generate_fig2()
-    generate_fig3()
-    generate_fig4()
-    generate_fig5()
-    generate_fig6()
-    generate_fig7()
-    print("\n[SUCCESS] All 7 publication-quality figures successfully created in paper/figures/!")
+    raise SystemExit(main())

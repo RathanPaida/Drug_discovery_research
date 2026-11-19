@@ -10,7 +10,7 @@
 
 ---
 
-> **Pipeline v2 Architectural Milestone (November 2026):** A rigorous audit of the Cycle-01 code and artifacts uncovered six silent defects—including an unparseable TOML that prevented RL from executing, static sampling masquerading as generative learning, latent space division-by-zero, and saturated reward sigmoids. Pipeline v2 resolves all defects with a real Double Augmented Prior (DAP) policy-gradient engine (`rl_min/`), dynamic empirical reward recalibration, full 25-fold nested cross-validation, and scaling to the maximum available finite-activity kinome data (~1.35M records and 787,283 prior structures). The automated test suite has been expanded from 21 tests to **220 passed unit and regression tests**.
+> **Pipeline v2 Architectural Milestone (November 2026):** A rigorous audit of the Cycle-01 code and artifacts uncovered six silent defects—including an unparseable TOML that prevented RL from executing, static sampling masquerading as generative learning, latent space division-by-zero, and saturated reward sigmoids. Pipeline v2 resolves all defects with a real Double Augmented Prior (DAP) policy-gradient engine (`rl_min/`), dynamic empirical reward recalibration, full 25-fold nested cross-validation, and scaling to the maximum available finite-activity kinome data (~1.35M records and 787,283 prior structures). The automated test suite has been expanded from 21 tests to **308 passed unit and regression tests**.
 
 ---
 
@@ -97,7 +97,7 @@ flowchart TD
    - Diagnosed and repaired six silent failure modes from v1.
    - Replaced static prior sampling with real DAP reinforcement learning (`rl_min/`), demonstrating a **7.8× empirical reward increase** ($0.069 \to 0.544$) and validity increase from $0.44 \to 0.91$.
    - Scaled kinome ingestion to ~1.35M finite-pActivity records, 200k candidate scoring pool, and full 25-fold nested cross-validation.
-   - Comprehensive test suite expanded from 21 tests to **220 passed unit and regression tests**.
+   - Comprehensive test suite expanded from 21 tests to **308 passed unit and regression tests**.
 
 ---
 
@@ -252,7 +252,7 @@ The updated master notebook replaces the v1 notebook with complete scientific in
 * Stage 5 reference tables fail loudly if files are missing, rather than inventing numbers.
 * Docking results honestly reported as predictor divergence ($r = 0.0244$) with clinical controls.
 * Novelty auditing incorporates fail-closed checks (`novelty_fully_checked = True`).
-* The test suite has been expanded from 21 tests to **220 passed unit and regression tests** (with 2 network tests deselected by default).
+* The test suite has been expanded from 21 tests to **308 passed unit and regression tests** (with 2 network tests deselected by default).
 
 ---
 
@@ -521,7 +521,7 @@ pip install -r requirements-chem.txt
 #### 2. Execute Complete Test Suite
 ```bash
 pytest
-# Expected: 220 passed, 2 deselected (live-registry network tests) in ~9 seconds
+# Expected: 308 passed, 2 deselected (live-registry network tests) in ~25 seconds
 
 pytest -m network
 # Expected: 2 passed — opt-in live PubChem and UniChem checks

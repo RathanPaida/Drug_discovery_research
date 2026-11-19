@@ -1,0 +1,151 @@
+# Business entity resolution - default configuration.
+# Any key can be overridden on the command line:  python -m ber dense dense.top_k=100
+# ${VAR:-default} reads the environment; <root> is the project root
+# (two levels above code/business_entity_resolution unless BER_ROOT is set).
+
+run_name: ber_v1
+seed: 20260925
+
+paths:
+  root: ${BER_ROOT:-}
+  data_dir: ${BER_DATA_DIR:-<root>/data/student_resource/dataset}
+  work_dir: ${BER_WORK_DIR:-<root>/work}
+  output_dir: ${BER_OUTPUT_DIR:-<root>/output}
+  model_dir: ${BER_MODEL_DIR:-<root>/model_weights}      # holds bge-m3/ and bge-reranker-v2-m3/
+  validator: ${BER_VALIDATOR:-<root>/data/student_resource/utils/validate_submission.py}
+
+data:
+  sample_s1: 0                 # >0 -> deterministic subsample of S1 entities (+ their records) for smoke runs
+  n_folds_nn: 2                # cross-fitting folds for the neural models (retriever, cross-encoder)
+  n_folds_gbdt: 5              # grouped CV folds for the GBDT pruner / stacker
+  translit_min_count: 3        # mined Indic->Latin token map: min aligned occurrences
+  translit_min_share: 0.5      #   ... and majority share
+  state_alias_min_count: 20    # mined state aliases (native script / codes)
+  state_alias_min_share: 0.9
+  fr_rules: false              # French record-style -> S1-style rules + region table (normalize.fr_addr/fr_name);
+                               # off: LB 0.98707 with them vs 0.98728 with the add-on strip alone
+  only_countries: []           # test-side rerun: dense / prune --split test / score-ce redo only these
+                               # countries and keep the rest from the previous run (valid when only
+                               # these countries' inputs changed, e.g. data.only_countries=France)
+
+sparse:                        # lexical TF-IDF retrieval (CPU), per country
+  passes: [name_word, addr_word, full_word, name_char]
+  top_k: 20                    # candidates kept per S1 per pass
+  full_name_weight: 0.6        # weight of the name block in the full_word pass
+  char_ngram: 3
+  max_df_word: 3000            # retrieval ignores tokens present in more records than this
+  max_df_char: 10000
+  max_query_terms_char: 10     # char pass: each S1 searches with its 10 rarest n-grams only
+  min_score: 0.05
+  chunk_size: 20000            # S1 rows per sparse-product chunk
+  n_threads: 0                 # 0 -> SLURM_CPUS_PER_TASK / all cores
+
+retriever:                     # bge-m3 bi-encoder fine-tuning (GPU), one model per fold
+  base_model: bge-m3           # folder under paths.model_dir
+  max_len: 96
+  batch_queries: 256           # S1 queries per step (unique S1s, same country)
+  hard_negatives: 2            # per query, mined from sparse candidates
+  hard_neg_pool: 10            # sample the hard negatives from the top-N non-matching sparse candidates
+  epochs: 1
+  lr: 1.0e-5
+  warmup_steps: 300
+  weight_decay: 0.01
+  temperature: 0.02
+  grad_checkpointing: true
+  max_steps: 0                 # >0 caps training (smoke tests)
+  log_every: 50
+  ckpt_every: 2000             # resume checkpoint cadence (steps); 0 = off
+  resume: true
+
+dense:                         # dense retrieval (GPU)
+  top_k: 50
+  encode_batch: 1024
+  query_chunk: 512             # S1 rows per GPU score block (512 x 6M fp16 scores = 6 GB)
+
+features:
+  chunk_rows: 5000000          # candidate pairs per feature chunk
+  n_threads: 0
+
+prune:                         # GBDT pruner -> candidate_pairs.tsv (what the cross-encoder scores)
+  keep_recall: 0.997           # share of retrieved true pairs the pruner must keep (OOF-tuned)
+  max_keep: 32                 # cap on candidates per S1 after pruning
+  min_keep: 3                  # always keep the top-N by pruner score
+  train_s1_frac: 0.35          # S1 share used to fit the pruner (all S1 get OOF scores)
+
+crossenc:                      # bge-reranker-v2-m3 cross-encoder (GPU), one model per fold
+  base_model: bge-reranker-v2-m3
+  max_len: 192
+  batch_size: 128
+  neg_per_query: 10            # hardest pruned negatives per S1 used for training
+  include_missed_positives: true
+  epochs: 1
+  lr: 2.0e-5
+  warmup_steps: 1000
+  weight_decay: 0.01
+  grad_checkpointing: true
+  max_steps: 40000             # per fold: ~5M of the ~13M pairs (a random 40%), saves ~5 h; 0 = full epoch
+  log_every: 100
+  ckpt_every: 10000            # resume checkpoint cadence (steps, ~30 min); 0 = off
+  resume: true
+  score_batch: 1024            # scoring is inference only: bigger batches keep the GPU busier
+
+gbdt:
+  backend: lightgbm            # lightgbm | sklearn (HistGradientBoosting fallback)
+  num_boost_round: 3000
+  early_stopping: 100
+  learning_rate: 0.05
+  num_leaves: 255
+  min_data_in_leaf: 200
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  lambda_l2: 1.0
+  n_threads: 0
+
+stack:
+  dir: stack                   # work/<dir>/ for models, reports, decision: variants can run side by side
+  train_s1_frac: 1.0           # S1 share used to fit the stacker (OOF predictions for all)
+  # Worlds: 0 = the full train set; k > 0 = a stress world with salt k - drop
+  # decide.stress_drop_s1 of the S1s, keep their records as distractors and recompute
+  # record-side context, S1 name frequencies, pruner and cross-encoder context. The
+  # test set looks like a stress world (5.75 records per S1 vs 4.68 in train).
+  worlds: [0, 11, 12]          # worlds both stackers train on
+  eval_world: 5                # held-out stress world for validation (0 = none)
+  tune_on: stress              # decision rule tuned on: normal | stress (eval_world) | blend
+  reprune: true                # stress worlds: re-score the pruner with the saved pruner models
+  second_stage: true           # level-2 stacker on collective features (collective.py)
+  per_fold_test: true          # test: each cross-encoder fold separately, probabilities averaged
+  drop_features: []            # level-1 features to leave out, shell-style patterns (e.g. ce_*,dense_*,prune_*)
+  members: []                  # ensemble: other stack dirs (same worlds) whose out-of-fold / test scores
+                               # feed this run's level-2 stacker, e.g. stack_nce,stack_lex
+  unseen_rate_match: false     # test: countries without training labels get a logit shift so their matches
+                               # per S1 equal the training countries' rate on the same test set
+
+decide:
+  method: expected_f           # expected_f | threshold
+  one_to_one: true             # each S2/S3 record assigned to at most one S1
+  mc_samples: 256              # Monte-Carlo samples for expected F0.5
+  beta: 0.5
+  stress_drop_s1: 0.19         # stress validation: drop this S1 share, keep their records as distractors
+
+residual:                      # boosted residual ensemble over saved stack runs: python -m ber residual
+  dir: residual                # work/<dir>/ for models, report, decision, test scores
+  base: stack_new              # the current model: its logit is the starting point (init_score)
+  members: [stack_nce, stack_lex]   # other boosted stack runs (same worlds) whose views the residual model reads
+  num_leaves: 31               # small and strongly regularised: it only corrects the base
+  learning_rate: 0.03
+  min_data_in_leaf: 2000
+  lambda_l2: 10.0
+  rounds: 2000
+  early_stopping: 100
+  min_gain: 0.0001             # stress-world tuned F gain over the base needed to use it
+
+frpost:                        # rule-based corrections for test countries without training labels (France),
+                               # applied to the final submission: python -m ber frpost (see src/ber/frpost.py)
+  in_dir: ""                   # submission to correct (default: paths.output_dir, corrected in place)
+  out_dir: ""                  # where to write (default: paths.output_dir)
+  countries: []                # default: test S1 countries absent from train S1
+  drop_legal_house: true       # legal form and house number both differ
+  drop_offsets: [1, 2, 3, 4, 5, 7, 9, 11, 13, 21]   # record house = S1 house + one of these (decoy fingerprint); [] = off
+  drop_swaps: true             # one business-type word replaced at the same site (decoy)
+  swap_min_df: 200             # sector words: in >= this many S1 names of the country
+  add_fillers: true            # add unclaimed same-site copies that differ by one filler word

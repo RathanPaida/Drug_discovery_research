@@ -15,14 +15,17 @@ from tnk1.rl.server import serve
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--reinvent-python", default="python"); a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg = C.cfg
     if a.cmd == "config":
-        d = Path("runs/rl"); d.mkdir(parents=True, exist_ok=True)
+        # C.runs is absolute (load_config resolves paths.runs against the repo root), so the
+        # TOML no longer lands in whatever directory the operator happened to launch from.
+        d = C.runs / "rl"; d.mkdir(parents=True, exist_ok=True)
+        from tnk1.rl.reinvent_client import client_path
         RI.write_rl_toml(d / "rl.toml", cfg, str(C.proc / "prior/kinase.prior"), str(C.proc / "prior/kinase.prior"),
-                         a.reinvent_python, str(Path("tnk1/rl/reinvent_client.py").resolve()), f"http://127.0.0.1:{a.port}")
+                         a.reinvent_python, str(client_path()), f"http://127.0.0.1:{a.port}")
         print("wrote", d / "rl.toml")
     elif a.cmd == "serve":
         from tnk1.uq.ensemble import Ensemble

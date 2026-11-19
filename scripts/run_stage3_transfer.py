@@ -15,7 +15,7 @@ from tnk1.uq.metrics import full_report
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); ap.add_argument("--only", nargs="*"); a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg = C.cfg; proc = C.proc
     ssl = proc / "ssl_encoder.pt"

@@ -22,10 +22,53 @@ def seed_everything(seed: int) -> None:
         pass
 
 
-def load_config(path: str = "configs/default.yaml") -> dict:
+# Config keys holding a filesystem location. Each is rewritten to an absolute path at load
+# time so that no stage can resolve one against the process working directory. Adding a new
+# path-valued key to configs/default.yaml means adding it here too, or it stays CWD-relative.
+_PATH_KEYS = {
+    "paths": ("raw", "processed", "runs"),
+    "data": ("chembl_sqlite", "bindingdb_tsv", "pkis_csv", "kinomescan_csv", "dkk_csv",
+             "kinase_table", "chembl_unlabelled_smiles"),
+}
+
+
+def load_config(path=None, *, resolve=True) -> dict:
+    """Load the YAML config and (by default) absolutise every path-valued entry.
+
+    `path=None` uses `tnk1.utils.paths.default_config()` -- the config that ships with the
+    installed package, or `$TNK1_CONFIG`. It is NOT "configs/default.yaml" relative to the
+    caller's CWD: that default is why every stage script had to be launched from the repo
+    root, and why launching one from `scripts/` silently wrote a second artifact tree
+    (see `tnk1.utils.paths.resolve_path`).
+
+    Pass `resolve=False` to get the file verbatim -- only useful for round-tripping the
+    config itself, never for running a stage.
+    """
     import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh)
+    from .paths import default_config, resolve_path
+
+    p = Path(path).expanduser() if path is not None else default_config()
+    if not p.is_absolute():
+        p = resolve_path(p)
+    if not p.exists():
+        raise FileNotFoundError(
+            f"config not found: {p}. Pass --config, set $TNK1_CONFIG, or run from a "
+            f"checkout that still has configs/default.yaml."
+        )
+    with open(p) as fh:
+        cfg = yaml.safe_load(fh)
+
+    cfg["_config_path"] = str(p)
+    if not resolve:
+        return cfg
+    for section, keys in _PATH_KEYS.items():
+        if not isinstance(cfg.get(section), dict):
+            continue
+        for k in keys:
+            v = cfg[section].get(k)
+            if isinstance(v, str) and v:
+                cfg[section][k] = str(resolve_path(v))
+    return cfg
 
 
 def sha256_file(path) -> str:

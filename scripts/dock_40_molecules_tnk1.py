@@ -45,6 +45,11 @@ RUNS_DIR = PIPELINE_ROOT / "runs" / "cycle_01"
 POSES_DIR = RUNS_DIR / "docking_poses"
 POSES_DIR.mkdir(parents=True, exist_ok=True)
 
+# AutoDock Vina seeds from the clock unless told otherwise, which makes the campaign
+# irreproducible -- and `hinge_contact` is a hard 3.5 A threshold, so a control can flip
+# from True to False on the RNG alone. Fixed here; override with --seed, or --seed -1 for
+# the old clock-seeded behaviour.
+DOCK_SEED = 42
 VINA_EXE = ROOT / "tools" / "vina.exe"
 RECEPTOR_PDB = (ROOT / "data" / "structures" / "tnk1_alphafold.pdb") if (ROOT / "data" / "structures" / "tnk1_alphafold.pdb").exists() else (ROOT / "data" / "tnk1_alphafold.pdb")
 RECEPTOR_PDBQT = (ROOT / "data" / "structures" / "tnk1_kinase.pdbqt") if (ROOT / "data" / "structures" / "tnk1_kinase.pdbqt").exists() else (ROOT / "data" / "tnk1_kinase.pdbqt")
@@ -135,8 +140,19 @@ def prepare_ligand_pdbqt(smiles: str, out_pdbqt: Path) -> bool:
         return False
 
 
-def run_docking_single(cid: str, bslice: str, smi: str, receptor_pdbqt: Path, vina_exe: Path, poses_dir: Path, cpu_per_job: int = 4):
-    """Docks a single molecule using AutoDock Vina."""
+def run_docking_single(cid: str, bslice: str, smi: str, receptor_pdbqt: Path, vina_exe: Path,
+                       poses_dir: Path, cpu_per_job: int = 4, seed: int | None = DOCK_SEED):
+    """Docks a single molecule using AutoDock Vina.
+
+    `seed` is passed to Vina's `--seed`. Without it Vina seeds from the clock, so the whole
+    docking campaign is NON-REPRODUCIBLE: re-running the three clinical controls on the
+    identical receptor and box gave -8.30 / -8.10 / -9.29 kcal/mol against the published
+    -8.37 / -8.26 / -9.40, and hinge distances 3.51 / 3.59 / 2.06 A against 3.49 / 3.53 /
+    1.98. Those shifts are small, but `hinge_contact` is a THRESHOLD at 3.5 A, so
+    CTRL_DASATINIB flips from contact=True to contact=False purely on the RNG -- and the
+    headline "60.0% overall hinge contact rate, 75.0% in EXPLOIT leads" is a count of such
+    threshold crossings. Pass seed=None for the old clock-seeded behaviour.
+    """
     ligand_pdbqt = poses_dir / f"{cid}_input.pdbqt"
     out_pdbqt = poses_dir / f"{cid}_docked.pdbqt"
 
@@ -166,6 +182,8 @@ def run_docking_single(cid: str, bslice: str, smi: str, receptor_pdbqt: Path, vi
         "--cpu", str(cpu_per_job),
         "--out", str(out_pdbqt)
     ]
+    if seed is not None:
+        cmd += ["--seed", str(int(seed))]
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
@@ -245,11 +263,42 @@ def run_docking_single(cid: str, bslice: str, smi: str, receptor_pdbqt: Path, vi
     }
 
 
-def main():
+def main(argv=None):
+    # This script took NO arguments. `python scripts/dock_40_molecules_tnk1.py --help`
+    # therefore ignored the flag and immediately began docking all 40 contract compounds,
+    # overwriting the published poses in runs/cycle_01/docking_poses/ -- a destructive
+    # action triggered by the universal gesture for "tell me what this does". Probing the
+    # script is how you find out it is not safe to probe.
+    #
+    # Writing over an existing campaign now requires --force, and --help is just help.
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Dock the 40 Cycle-01 contract compounds into the TNK1 AlphaFold2 pocket.",
+        epilog="Overwriting an existing campaign requires --force.")
+    ap.add_argument("--cycle", type=int, default=1)
+    ap.add_argument("--cpu", type=int, default=4, help="Vina CPU threads per job")
+    ap.add_argument("--seed", type=int, default=DOCK_SEED,
+                    help=f"Vina RNG seed (default {DOCK_SEED}); -1 seeds from the clock "
+                         f"and makes the run irreproducible")
+    ap.add_argument("--limit", type=int, default=None, help="dock only the first N (debugging)")
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite existing docked poses / results for this cycle")
+    a = ap.parse_args(argv)
+    seed = None if a.seed is not None and int(a.seed) < 0 else a.seed
+
+    existing = sorted(POSES_DIR.glob("*_docked.pdbqt")) if POSES_DIR.exists() else []
+    if existing and not a.force:
+        print(f"Refusing to run: {len(existing)} docked pose(s) already exist in")
+        print(f"  {POSES_DIR}")
+        print("These are published Cycle-01 artifacts referenced by README.md and the")
+        print("master document. Re-docking replaces them, and Vina results shift slightly")
+        print("between runs. Pass --force if that is what you intend.")
+        return 1
+
     print("=" * 80, flush=True)
     print("TNK1 CLOSED-LOOP AI DISCOVERY: MOLECULAR DOCKING AUDIT (40 CANDIDATES)", flush=True)
     print("Receptor: TNK1 Kinase Domain (Residues 116-377, AlphaFold2 pLDDT: 89.2)", flush=True)
-    print("Engine: AutoDock Vina v1.2.7", flush=True)
+    print(f"Engine: AutoDock Vina v1.2.7  |  seed={seed if seed is not None else 'clock'}", flush=True)
     print("=" * 80, flush=True)
 
     # 1. Check or prepare receptor PDBQT
@@ -362,5 +411,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # propagate the exit code: the refuse-to-clobber path returns 1
+    raise SystemExit(main())
 

@@ -11,16 +11,33 @@ from tnk1.selectivity.selectivity import selectivity_stats, sanity_check_pan_kin
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg = C.cfg
     if a.cmd == "admet":
         from tnk1.admet.admet import train_endpoint
-        sc = C.desc_scaler(); bundles = {e: train_endpoint(cfg, e, sc, a.device) for e in cfg["admet"]["endpoints"]}
+        # epochs comes from the config (admet.epochs); it was pinned at train_endpoint's
+        # default of 12 with no way to change it short of editing the function.
+        ep = int(cfg["admet"].get("epochs", 12))
+        sc = C.desc_scaler()
+        bundles = {}
+        for e in cfg["admet"]["endpoints"]:
+            print(f"[admet] training {e} ({cfg['admet']['n_members']} members, {ep} epochs)")
+            bundles[e] = train_endpoint(cfg, e, sc, a.device, epochs=ep)
         torch.save(bundles, C.proc / "admet_bundles.pt")
+        print(f"[admet] wrote {C.proc / 'admet_bundles.pt'} with endpoints {sorted(bundles)}")
     elif a.cmd == "selectivity":
         ens = Ensemble(cfg, C.store, C.desc_store(), C.proc / "ensemble", a.device)
-        ref = pd.read_csv("data/raw/reference_panel.csv")                  # name,smiles  (dasatinib, bosutinib, TP-0903, ...)
+        # was pd.read_csv("data/raw/reference_panel.csv") -- CWD-relative, so this stage
+        # only worked when launched from the repo root. paths.raw is absolutised by
+        # load_config.
+        ref_p = Path(cfg["paths"]["raw"]) / "reference_panel.csv"
+        if not ref_p.exists():
+            raise SystemExit(
+                f"{ref_p} is missing. It carries the pan-kinase controls (dasatinib, "
+                f"bosutinib, TP-0903) that `sanity_check_pan_kinase` needs; Stage 1 writes "
+                f"a default copy if absent, so run `make stage1` or restore the file.")
+        ref = pd.read_csv(ref_p)                  # name,smiles
         panel = [C.tnk1] + cfg["offtarget_panel"]
         mu_m, _ = ens.predict_members(list(ref.smiles), panel)
         s = selectivity_stats(mu_m[..., 0], mu_m[..., 1:]); ref["mu_sel"], ref["sigma_sel"], ref["fold"] = s["mu_sel"], s["sigma_sel"], s["fold"]

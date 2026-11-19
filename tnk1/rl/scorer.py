@@ -21,6 +21,25 @@ class Scorer:
         rl = self.cfg["rl"]
         return rl["weights_v2"] if self.use_v2 else rl["weights"]
 
+    def advance_step(self) -> int:
+        """Tick the beta schedule without scoring anything.
+
+        A caller that de-duplicates or caches (see `rl_min.scorer.PipelineScorer`) can
+        reach an RL step where every molecule is already known and `score()` is never
+        invoked. Without this, `self.step` stops tracking the true step count and beta
+        silently lags -- the agent keeps being judged under exploration-era optimism long
+        after the schedule should have turned pessimistic. Call it once per skipped step.
+        """
+        self.step += 1
+        return self.step
+
+    def beta(self) -> float:
+        """The beta the NEXT scored batch will use. Log it; a drifting schedule is
+        otherwise invisible until the results look wrong."""
+        rl = self.cfg["rl"]
+        return R.beta_schedule(self.step, rl["beta_explore"], rl["beta_final"],
+                               rl["beta_explore_steps"], rl["steps"])
+
     def calibrate(self, smiles: list[str], target_frac: float | None = None) -> dict:
         """Re-centre the potency and selectivity sigmoids on this generator's own output.
 

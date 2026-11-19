@@ -193,37 +193,96 @@ def sample_report(model, vocab, n=2000, device="cpu", train_set=None):
     return rep
 
 
-if __name__ == "__main__":
-    import json, os
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--corpus", required=True)
-    ap.add_argument("--smiles-col", default="smiles")
-    ap.add_argument("--out", default="data/processed/rl_min")
-    ap.add_argument("--epochs", type=int, default=40)
-    ap.add_argument("--batch", type=int, default=512)
-    ap.add_argument("--hidden", type=int, default=512)
-    ap.add_argument("--layers", type=int, default=3)
+def main(argv=None) -> int:
+    import json
+    import os
+
+    from tnk1.utils.common import load_config
+    from tnk1.utils.paths import feature_file
+
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    # `--corpus` was required, which meant the canonical corpus already named in
+    # configs/default.yaml (`rl_min.corpus: unique_molecules_788k.parquet`) had to be
+    # retyped as a path on every invocation -- and a mistyped one silently trains a prior
+    # on the wrong chemistry. Default to the configured corpus, resolved through the
+    # feature-store resolver so $TNK1_FEATURES_DIR is honoured.
+    ap.add_argument("--corpus", default=None,
+                    help="default: rl_min.corpus from the config, inside the feature store")
+    ap.add_argument("--smiles-col", default=None,
+                    help="default: rl_min.corpus_col from the config")
+    ap.add_argument("--out", default=None, help="default: <processed>/rl_min")
+    ap.add_argument("--epochs", type=int, default=None)
+    ap.add_argument("--batch", type=int, default=None)
+    ap.add_argument("--hidden", type=int, default=None)
+    ap.add_argument("--layers", type=int, default=None)
     ap.add_argument("--emb", type=int, default=128)
-    ap.add_argument("--dropout", type=float, default=0.2)
+    ap.add_argument("--dropout", type=float, default=None)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--limit", type=int, default=None,
                     help="cap the corpus (debugging only; omit to use every molecule)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1),
                     help="processes for RDKit canonicalisation")
     ap.add_argument("--qc-n", type=int, default=2000)
+    ap.add_argument("--min-validity", type=float, default=None,
+                    help="default: rl_min.prior.min_validity from the config")
+    ap.add_argument("--allow-weak-prior", action="store_true",
+                    help="exit 0 even if the validity gate fails (records the failure)")
+    ap.add_argument("--config", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
-    raw = load_corpus(a.corpus, a.smiles_col, a.limit)
-    print(f"[prior] loaded {len(raw):,} raw SMILES from {a.corpus}")
+    cfg = load_config(a.config)
+    rm = cfg.get("rl_min", {}) or {}
+    pr = rm.get("prior", {}) or {}
+    # Every hyperparameter falls back to the config, so a run is described by the config
+    # rather than by whatever flags the operator remembered to pass.
+    epochs = a.epochs if a.epochs is not None else pr.get("epochs", 40)
+    batch = a.batch if a.batch is not None else pr.get("batch", 512)
+    hidden = a.hidden if a.hidden is not None else pr.get("hidden", 512)
+    layers = a.layers if a.layers is not None else pr.get("layers", 3)
+    dropout = a.dropout if a.dropout is not None else pr.get("dropout", 0.2)
+    min_validity = a.min_validity if a.min_validity is not None else pr.get("min_validity", 0.80)
+
+    corpus_path = a.corpus
+    if corpus_path is None:
+        name = rm.get("corpus")
+        if not name:
+            raise SystemExit("no --corpus given and rl_min.corpus is unset in the config")
+        corpus_path = str(feature_file(name, required=True))
+    smiles_col = a.smiles_col or rm.get("corpus_col") or "smiles"
+    out = Path(a.out) if a.out else Path(cfg["paths"]["processed"]) / "rl_min"
+    out.mkdir(parents=True, exist_ok=True)
+
+    raw = load_corpus(corpus_path, smiles_col, a.limit)
+    print(f"[prior] loaded {len(raw):,} raw SMILES from {corpus_path} (column {smiles_col!r})")
     corpus = canonicalise(raw, workers=a.workers)
     del raw
-    model, vocab = train(corpus, a.out, epochs=a.epochs, batch=a.batch, lr=a.lr,
-                         hidden=a.hidden, layers=a.layers, emb=a.emb, dropout=a.dropout,
+    model, vocab = train(corpus, out, epochs=epochs, batch=batch, lr=a.lr,
+                         hidden=hidden, layers=layers, emb=a.emb, dropout=dropout,
                          device=a.device)
     qc = sample_report(model, vocab, a.qc_n, a.device, corpus)
     print("[prior] sample QC:", qc)
-    Path(a.out, "prior_qc.json").write_text(json.dumps(qc, indent=2))
-    if qc["validity"] < 0.80:
-        print(f"[prior] WARNING: validity {qc['validity']:.1%} < 80%. DAP cannot rescue a "
-              f"prior this weak -- train more epochs or on a larger corpus.")
+    qc.update({"min_validity": min_validity, "corpus": str(corpus_path),
+               "n_corpus": len(corpus), "epochs": epochs, "hidden": hidden,
+               "layers": layers, "dropout": dropout})
+    qc["passed"] = bool(qc["validity"] >= min_validity)
+    Path(out, "prior_qc.json").write_text(json.dumps(qc, indent=2))
+
+    if not qc["passed"]:
+        # This is a GATE in configs/default.yaml ("DAP cannot rescue a prior that emits
+        # garbage"), but the code only printed a warning and exited 0 -- so an orchestrator
+        # happily proceeded to burn hours of RL on an unusable prior. Fail closed.
+        msg = (f"[prior] FAIL: validity {qc['validity']:.1%} < gate {min_validity:.0%}. "
+               f"DAP cannot rescue a prior this weak -- train more epochs or on a larger "
+               f"corpus. Re-run with --allow-weak-prior to override deliberately.")
+        print(msg)
+        if not a.allow_weak_prior:
+            return 1
+        print("[prior] --allow-weak-prior set; continuing despite the failed gate")
+    print(f"[prior] artifacts -> {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

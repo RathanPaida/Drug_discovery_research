@@ -149,4 +149,5 @@ configs/aizynth.yml                              template (model files not inclu
 priors/README.md                                 what must go there, and how to get it
 ```
 
-Full suite: **212 passed**, 2 deselected (network).
+Full suite at the time of v2: **212 passed**, 2 deselected (network).
+Current suite: **308 passed** — see `CHANGES_V3.md`.

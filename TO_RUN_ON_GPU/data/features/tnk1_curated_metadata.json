@@ -1,0 +1,29 @@
+{
+  "dataset_name": "TNK1_curated_dose_response",
+  "target": "TNK1 (UniProt Q13470)",
+  "total_compounds": 380,
+  "exact_compounds": 172,
+  "censored_compounds": 208,
+  "unique_scaffolds": 285,
+  "seeds": [
+    42,
+    101,
+    202,
+    303,
+    404
+  ],
+  "files": {
+    "parquet": {
+      "path": "features\\tnk1_curated.parquet",
+      "sha256": "e1de4cb2445d1f478bb33114b71d6fe94105a1923ed31fe1e8c232b0332c24ec"
+    },
+    "csv": {
+      "path": "features\\tnk1_curated.csv",
+      "sha256": "d2d3694e1eb943e981a3b185de8c9a9f236cbe0bd9dcec45a5e6103a1ec4edc3"
+    },
+    "splits_json": {
+      "path": "features\\tnk1_nested_scaffold_splits_5x5.json",
+      "sha256": "7ed825f357dbc9d69ac91aac843984bde6862ce8864c587fbb97fc835781bf6b"
+    }
+  }
+}

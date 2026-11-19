@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tnk1"
+version = "0.2.0"
+description = "Uncertainty-aware pan-kinome transfer learning, policy-gradient generation and docking for TNK1 (UniProt Q13470)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["drug-discovery", "kinase", "graph-neural-network", "conformal-prediction",
+            "reinforcement-learning", "cheminformatics"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+# `core` is a supported, tested configuration on its own: the hermetic suite passes with
+# only these installed, and the RDKit/torch-dependent tests skip rather than failing
+# collection (CI proves this in the `core-only` job).
+#
+# numpy >= 2.0 is REQUIRED, not a preference: tnk1/novelty/verifier.py uses
+# np.bitwise_count for the packed-fingerprint Tanimoto scan, added in NumPy 2.0.
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "pyyaml>=6.0",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+# Chemistry + deep learning: needed by every generative, scoring and docking stage.
+chem = [
+    "rdkit>=2023.9",
+    "torch>=2.1",
+    "xgboost>=2.0",
+    "gpytorch>=1.11",
+    "meeko>=0.5",
+    "gemmi>=0.6",
+    "tqdm>=4.65",
+]
+# Stage 3 pocket embeddings (a precomputed kinase_store.npz can substitute).
+esm = ["fair-esm>=2.0"]
+# Stage 5 endpoint download (the local admet_7endpoints.parquet can substitute).
+tdc = ["PyTDC>=0.4"]
+# Stage 8 retrosynthesis. ~1 GB of model files are NOT shipped; see configs/aizynth.yml.
+retro = ["aizynthfinder>=4.0"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+all = ["tnk1[chem,esm,tdc,dev]"]
+
+# No [project.scripts]: `scripts/` is a directory of standalone entry points, not an
+# importable package (each file bootstraps sys.path itself), so console-script targets
+# like "scripts.run_pipeline:main" would fail to import on an installed wheel. Invoke the
+# stages as `python scripts/run_pipeline.py ...` or through the Makefile.
+
+[project.urls]
+Repository = "https://github.com/RathanPaida/Drug_discovery_research"
+
+[tool.setuptools]
+# `scripts/` is a directory of entry points, not an importable package; the stage scripts
+# bootstrap sys.path themselves.
+packages = ["tnk1", "tnk1.active_learning", "tnk1.admet", "tnk1.baselines", "tnk1.data",
+            "tnk1.evaluation", "tnk1.models", "tnk1.novelty", "tnk1.rl", "tnk1.selectivity",
+            "tnk1.uq", "tnk1.utils", "rl_min"]
+
+[tool.setuptools.package-data]
+tnk1 = ["py.typed"]
+
+# Deliberately NO [tool.pytest.ini_options] here. `pytest.ini` exists and takes precedence
+# over this file, so declaring the same settings in both would leave two sources of truth
+# and no indication of which one is in force. pytest.ini is the single source.

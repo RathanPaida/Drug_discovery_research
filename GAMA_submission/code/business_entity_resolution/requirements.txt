@@ -1,0 +1,23 @@
+# Business entity resolution pipeline - pinned dependencies (Python 3.10+).
+# Exact versions of the environment that produced the submission; the complete environment
+# (pip freeze, including transitive dependencies) is in requirements.lock.txt.
+#
+# torch is the CUDA 13.0 build (2.14.0+cu130) from download.pytorch.org: hpc/setup_env.sh installs
+# torch, transformers and huggingface_hub itself (matching the node's CUDA driver) and skips those three
+# lines below. With another CUDA driver, install the torch 2.14.0 build that matches it.
+
+torch==2.14.0              # BSD
+transformers==5.17.0       # bge-m3 / bge-reranker-v2-m3 (Apache-2.0)
+huggingface_hub==1.33.0    # model download (Apache-2.0)
+tokenizers==0.23.2
+safetensors==0.8.0
+polars==1.44.1             # TSV parsing, joins, window features
+pyyaml==6.0.3
+numpy==2.4.6
+scipy==1.17.1
+scikit-learn==1.9.1        # TF-IDF vectorisers; HistGradientBoosting fallback
+lightgbm==4.7.0            # pruner + stackers (MIT)
+rapidfuzz==3.14.6          # string features (MIT)
+sparse_dot_topn==1.2.0     # multi-threaded sparse top-k retrieval (MIT)
+anyascii==0.3.3            # Indic romanisation fallback (ISC licence)
+pytest==9.1.1

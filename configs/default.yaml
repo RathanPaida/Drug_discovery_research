@@ -29,6 +29,54 @@ data:
   # unique structures". 200k is ample for 200 quantiles and keeps Stage 1 fast.
   desc_scaler_n: 200000
   standard_types: [IC50, Ki, Kd]
+
+  # ---- Measurability filter (tnk1.data.activity.filter_measurable) ----------------
+  # Which rows of the kinome store the REGRESSION head may consume, and what counts as a
+  # physically possible value. These are not cosmetic: before this filter existed, Stage 1
+  # used `np.isfinite(pActivity)` and the store encodes "no dose-response value" as
+  # pActivity == 0.0, NOT NaN. isfinite(0.0) is True, so of the 4,798,165 rows in
+  # kinome_all_measurements_3.95M.parquet:
+  #
+  #   3,374,532 (70.3%)  carried pActivity exactly 0.0 with is_censored=0 -- presented to
+  #                      task_loss as an EXACT measurement of IC50 = 1 molar. Every one of
+  #                      the 3,338,837 non-dose-response rows (OUTCOME 1.80M,
+  #                      PCT_INHIBITION 771k, kon 258k, koff 258k, Residual Activity 70k,
+  #                      Activity 60k, PCT_CONTROL 58k, PCT_ACTIVITY 29k) is in this group.
+  #     108,450          had 0 != pActivity < 2.0, i.e. value_nM from 1.0e7 to 1.3e20
+  #                      (median 3.2e14 nM = 316,000 M). 107,795 are PubChem `Ki` rows
+  #                      whose value was not in nM. They read as very weak binders.
+  #
+  # kinome_long_v2.parquet was built before this filter and contains 3,372,521 poisoned
+  # rows out of 4,796,129 -- do not train on it. With the filter, 1,315,069 rows survive,
+  # which is the ~1.35M that CHANGES_V2.md documents as usable.
+  #
+  # Readouts whose value IS a concentration, so pAct = 9 - log10(value_nM) is meaningful.
+  # Anything else (qualitative flags, single-point percentages, rate constants) needs a
+  # classification head, not task_loss.
+  dose_response_types: [IC50, Ki, Kd, EC50, Potency, AC50, GI50]
+  # pAct 2 == 10 mM (weaker than any reported kinase inhibitor);
+  # pAct 12 == 1 pM (tighter than the tightest known small-molecule kinase binder).
+  pact_min: 2.0
+  pact_max: 12.0
+  # 642 of the store's `uniprot_accession` values are semicolon-joined lists of up to ~150
+  # accessions (panel aggregates / protein complexes), covering 211,546 filtered rows.
+  # A value measured against a target SET cannot be attributed to one kinase, and
+  # duplicating the row across its members would fabricate measurements. They were already
+  # being discarded silently by `kinome_stage`'s `isin(kinase_store ids)`; dropping them
+  # here makes it a counted decision. true also fixes the row-count report, which claimed
+  # 1054 distinct kinases when only 491 are real single accessions.
+  drop_composite_targets: true
+
+  # ---- Development knob: cap the kinome rows for a fast end-to-end smoke run ---------
+  # null in production. Set it (e.g. 20000) and `Ctx` deterministically samples the
+  # off-target rows down to that many, ALWAYS keeping every TNK1 row (they carry the
+  # labels every metric is computed on, and the frozen splits are keyed by TNK1 compound).
+  # Needed because `LabelledSet.__init__` computes descriptors for every row up front, so
+  # even a 1-epoch / 2-member run over the full table costs tens of minutes before the
+  # first gradient step -- which made verifying a code change too slow to do routinely.
+  # A run with this set prints a loud warning and must never be reported as a result.
+  max_kinome_rows: null
+
   mw_range: [150, 900]
   hac_range: [10, 65]
   allowed_elements: [C, N, O, S, F, Cl, Br, I, P, B, H]
@@ -103,6 +151,9 @@ uq:
 # ---------------- Stage 5 ----------------
 admet:
   n_members: 5
+  # Was pinned at tnk1.admet.admet.train_endpoint's default of 12 with no config path, so
+  # the only way to change it was to edit the function. All 7 endpoints share it.
+  epochs: 12
   endpoints:
     solubility: {tdc: ["ADME", "Solubility_AqSolDB"], task: reg}
     caco2: {tdc: ["ADME", "Caco2_Wang"], task: reg}

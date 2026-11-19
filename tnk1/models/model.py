@@ -19,6 +19,21 @@ class KinomeModel(nn.Module):
         self.n_assay = 3
         if self.design == "B":
             assert kin_store is not None
+            # cfg.model.esm_dim / klifs_dim were declared in configs/default.yaml but never
+            # read: the fusion width came from `feats.shape[1]`, so a kinase store built
+            # with a different ESM variant (650M -> 1280-d vs 3B -> 2560-d) or a different
+            # KLIFS encoding would train happily at the wrong width and the config would
+            # still claim 1280/425. Check them instead of ignoring them.
+            e_dim, k_dim = kin_store["esm"].shape[1], kin_store["klifs"].shape[1]
+            for name, got, want in (("esm_dim", e_dim, m.get("esm_dim")),
+                                    ("klifs_dim", k_dim, m.get("klifs_dim"))):
+                if want is not None and int(want) != got:
+                    raise ValueError(
+                        f"kinase store disagrees with cfg.model.{name}: store has {got}, "
+                        f"config declares {want}. Either the store was built with a "
+                        f"different encoder than the config documents, or the config is "
+                        f"stale -- do not train until they agree."
+                    )
             feats = np.hstack([kin_store["esm"], kin_store["klifs"]]).astype(np.float32)
             self.register_buffer("kin_feat", torch.tensor(feats))
             self.kproj = nn.Sequential(nn.Linear(feats.shape[1], m["kin_proj_dim"]), nn.ReLU(), nn.Dropout(m["dropout"]))

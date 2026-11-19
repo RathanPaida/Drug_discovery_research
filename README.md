@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
 [![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
-[![Tests](https://img.shields.io/badge/pytest-175%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/pytest-308%20passed-success.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
@@ -27,8 +27,8 @@ actions — please see:
 
 👉 **[Pipeline Audit & Remediation Log](PIPELINE_AUDIT.md)**
 
-> **Reproducibility note.** The precomputed feature stores (~280 MB) are gitignored, so a
-> fresh clone has 11 of 12 absent. Stages downstream of Stage 1, and the local half of the
+> **Reproducibility note.** The precomputed feature stores (12 files, **584 MB**) are
+> gitignored, so a fresh clone has all of them absent. Stages downstream of Stage 1, and the local half of the
 > novelty audit, cannot run until they are restored — run
 > `make verify-features` to check. Since the audit the pipeline is **fail-closed**: a
 > missing store or a failed registry query now raises or reports `INCONCLUSIVE` rather than
@@ -64,7 +64,7 @@ actions — please see:
 
 ```mermaid
 graph TD
-    A["Stage 1: Pan-Kinome Ingestion (4.80M Bioactivities, 491 Kinases)"] --> B["Stage 2: ESM-2 (650M) Pocket Embeddings + 2248-d Ligand Features"]
+    A["Stage 1: Pan-Kinome Ingestion (1.10M usable measurements, 491 Kinases)"] --> B["Stage 2: ESM-2 (650M) Pocket Embeddings + 2248-d Ligand Features"]
     B --> C["Stage 3: Heteroscedastic Deep Residual Trunk (NLL + Censored Hinge)"]
     C --> D["Stage 4: 5-Member Ensemble & Conformal Calibration (q_hat = 1.743)"]
     D --> E["Stage 5: 34-Endpoint Profiler (Potency, Selectivity, ADMET, QEPPI)"]
@@ -132,7 +132,7 @@ export TNK1_FEATURES_DIR=data/features
 ### 2. Run Test Suite
 ```bash
 pytest
-# 173 hermetic tests pass; 2 live-registry tests are deselected by default
+# 308 hermetic tests pass; 2 live-registry tests are deselected by default
 
 pytest -m network
 # the 2 opt-in PubChem / UniChem checks

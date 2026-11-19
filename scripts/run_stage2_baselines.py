@@ -14,7 +14,7 @@ def grid(d): return [dict(zip(d, v)) for v in itertools.product(*d.values())]
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); a = ap.parse_args()
     cfg = load_config(a.config); proc = Path(cfg["paths"]["processed"])
     path = proc / f"kinome_long_{a.version}.parquet"; sha = verify_locked(path)

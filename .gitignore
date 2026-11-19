@@ -74,3 +74,37 @@ runs/*.log
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
 oof_tmp*
+
+# Orchestrator state and per-stage logs (scripts/run_pipeline.py)
+runs/pipeline/
+**/runs/pipeline/
+**/logs/*.out
+**/logs/*.err
+**/logs/*.log
+
+# Snapshot of the published Cycle-01 artifacts, kept locally for comparison
+runs/cycle_01_published/
+# Trained SMILES prior for rl_min (22 MB; rebuild with `make prior`)
+data/processed/rl_min/
+# Exact-environment lockfile IS tracked -- do not ignore requirements-lock.txt
+
+# Virtual environments in subdirectories
+envs/
+**/envs/
+**/venv/
+**/env/
+
+# Feature stores and processed binaries in subdirectories (e.g. TO_RUN_ON_GPU)
+**/data/features/*.parquet
+**/data/features/*.npz
+**/data/features/*.csv
+!**/data/features/README.md
+!**/data/features/manifest.json
+!**/data/features/*summary*.json
+!**/data/features/*metadata*.json
+!**/data/features/*splits*.json
+
+**/data/processed/
+!**/data/processed/splits_v1.json
+!**/data/processed/prior/*.toml
+

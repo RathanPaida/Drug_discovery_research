@@ -16,7 +16,7 @@ from tnk1.baselines.features import morgan_count
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default="configs/default.yaml")
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--config", default=None)   # None -> tnk1.utils.paths.default_config()
     ap.add_argument("--version", default="v1"); ap.add_argument("--device", default="cuda"); a = ap.parse_args()
     C = Ctx(a.config, a.version, a.device); cfg = C.cfg; ck = C.proc / "ensemble"; ssl = C.proc / "ssl_encoder.pt"
     store, ds = C.store, C.desc_store()
@@ -44,7 +44,14 @@ def main():
                 d = C.runs / f"oof_tmp_{f['outer']}"; d.mkdir(exist_ok=True); torch.save(mem.state_dict(), d / f"member_{m:02d}.pt")
             e = Ensemble(cfg, store, ds, d, a.device); te = C.tnk1_rows(te_keys, censored=False)
             mu_m, lv_m = e.predict_members(list(te.smiles), [C.tnk1]); dd = decompose(mu_m[..., 0], lv_m[..., 0])
-            rows.append(pd.DataFrame({"fold": f["outer"], "y": te.pact.values, "mu": dd["mu"], "sigma_tot": dd["sigma_tot"], "sigma_epi": dd["sigma_epi"]}))
+            # `key` and `smiles` are carried so these out-of-fold predictions can be joined
+            # row-by-row against another model's. Without a key the only possible
+            # comparison was positional, which silently depends on both models having
+            # selected the same rows in the same order (see scripts/compare_critic.py).
+            rows.append(pd.DataFrame({"fold": f["outer"], "key": te.inchikey_block1.values,
+                                      "smiles": te.smiles.values, "y": te.pact.values,
+                                      "mu": dd["mu"], "sigma_tot": dd["sigma_tot"],
+                                      "sigma_epi": dd["sigma_epi"]}))
             shutil.rmtree(d)
         pd.concat(rows).to_csv(C.runs / "stage4_oof_predictions.csv", index=False)
 

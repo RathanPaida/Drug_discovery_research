@@ -1,0 +1,9 @@
+{
+  "dataset": "kinome_all_measurements_3.95M",
+  "total_distinct_measurements": 4798165,
+  "exact_dose_response_measurements": 946262,
+  "censored_weak_negatives": 408357,
+  "single_point_screen_measurements": 858491,
+  "qualitative_screen_records": 2365725,
+  "parquet_size_mb": 185.52
+}

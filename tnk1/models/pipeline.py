@@ -37,7 +37,26 @@ def kinome_stage(cfg, df, store, desc_store, ssl_ckpt=None, design=None, lam=Non
     torch.manual_seed(seed)
     model = KinomeModel(cfg, store, design=design, head_type=head_type).to(device)
     if ssl_ckpt:
-        model.enc.load_state_dict(torch.load(ssl_ckpt, map_location=device))
+        # The SSL encoder is a config-DEPENDENT artifact: its weight shapes are fixed by
+        # model.hidden / model.depth / model.n_desc at the time it was pretrained. Loading
+        # it with a bare load_state_dict meant that changing any of those in the config
+        # produced a 10-line torch size-mismatch dump from inside nn.Module, naming tensor
+        # shapes but never the actual problem -- that the checkpoint and the config describe
+        # different architectures. Say so, and say what to do about it.
+        _sd = torch.load(ssl_ckpt, map_location=device)
+        try:
+            model.enc.load_state_dict(_sd)
+        except RuntimeError as e:
+            ck_hidden = tuple(_sd["W_m.weight"].shape)[0] if "W_m.weight" in _sd else "?"
+            raise RuntimeError(
+                f"the pretrained SSL encoder at {ssl_ckpt} does not match this config.\n"
+                f"  checkpoint trunk width : {ck_hidden}\n"
+                f"  config model.hidden    : {cfg['model']['hidden']}\n"
+                f"  config model.n_desc    : {cfg['model']['n_desc']}\n"
+                f"Either re-run `make pretrain` with the current config, or delete\n"
+                f"{ssl_ckpt} to train the trunk from scratch (the kinome stage does not\n"
+                f"require SSL initialisation). Original error:\n{e}"
+            ) from e
     opt = torch.optim.AdamW(model.parameters(), lr=k["lr"], weight_decay=k["weight_decay"])
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, k["epochs"])
     run_epochs(model, tr, va, device, k["epochs"], opt, sched, "huber", k["huber_delta"], k["cens_weight"],
