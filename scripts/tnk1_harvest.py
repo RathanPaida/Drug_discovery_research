@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 r"""
 =====================================================================================
- TNK1 / KINOME BIOACTIVITY HARVESTER   (one file - 10 sources - resumable)
+ TNK1 / KINOME BIOACTIVITY HARVESTER   (one file - 14 sources - resumable)
 =====================================================================================
 Goal   : collect measured compound-kinase bioactivity for TNK1 + a broad panel of
          related human kinases, so that a transfer-learning model (GNN etc.) has
@@ -16,6 +16,7 @@ Run:
     python tnk1_harvest.py                  # full run (hours; safe to Ctrl+C and re-run)
     python tnk1_harvest.py --panel core     # quick small run (14 kinases) to test everything
     python tnk1_harvest.py --sources davis,kiba,iuphar      # only some sources
+    python tnk1_harvest.py --sources klaeger,karaman,metz   # the manual-table panels
     python tnk1_harvest.py --postprocess-only               # just rebuild master + report
     python tnk1_harvest.py --fresh                          # ignore checkpoints, start over
 
@@ -28,12 +29,21 @@ Output folder (default ./tnk1_data):
     manifest.json                             <- checkpoint (do not delete if you want to resume)
     _work/                                    <- raw downloads, partial pages, caches
 
-Sources (all 10 requested):
+Sources:
   1 ChEMBL (REST API, paginated, per-target)        6 PKIS  (via the ChEMBL deposit of Elkins 2016)
   2 PubChem BioAssay (PUG-REST, AID enumeration)    7 PKIS2 (via ChEMBL discovery; manual file ok)
   3 BindingDB (bulk TSV download, API fallback)     8 Davis (DeepDTA GitHub copy of Davis 2011)
   4 Drug Target Commons (bulk CSV / API discovery)  9 KIBA  (DeepDTA GitHub copy)
   5 IUPHAR/BPS Guide to PHARMACOLOGY (bulk + API)  10 Metz  (via ChEMBL deposit of Metz 2011)
+
+  Added 2026-11-20 -- published whole-kinome profiling panels, the largest untapped source
+  of exact TNK1 values. Each tries ChEMBL's deposit of the paper first, then a MANUAL drop
+  of the supplementary table (the usual route: the publishers hosting these refuse
+  automated requests). `--check` lists which manual files are still missing.
+ 11 Klaeger 2017 (Science, Kinobeads, 243 clinical drugs x kinome, Kd_app)
+ 12 Anastassiadis 2011 (Nat Biotechnol, 178 inhibitors x 300 kinases, % activity)
+ 13 Karaman 2008 (Nat Biotechnol, 38 inhibitors x 317 kinases, Kd)
+ 14 Papyrus (curated ChEMBL + ExCAPE-DB aggregation; manual release export)
 
 Scientific rules enforced
   * TNK1 and TNK2 are always separate targets. No compound is labelled a TNK1 inhibitor
@@ -87,7 +97,12 @@ CONFIG = {
     "OUTPUT_DIR": "tnk1_data",
     # enable / disable individual sources
     "SOURCES": {"chembl": True, "pubchem": True, "bindingdb": True, "dtc": True, "iuphar": True,
-                "pkis": True, "pkis2": True, "davis": True, "kiba": True, "metz": True},
+                "pkis": True, "pkis2": True, "davis": True, "kiba": True, "metz": True,
+                # Added 2026-11-20. Published whole-kinome profiling panels: the largest
+                # untapped source of exact TNK1 values. All four resolve through a manual
+                # drop of the paper's supplementary table when ChEMBL has no deposit --
+                # see docs/DATA_COLLECTION_PLAN.md for where to get each file.
+                "klaeger": True, "anastassiadis": True, "karaman": True, "papyrus": True},
     # core | tyrosine | kinome | broad
     #   core     = the core list below (14 kinases)           -> quick test
     #   tyrosine = core + every human tyrosine kinase (UniProt family)
@@ -120,13 +135,33 @@ CONFIG = {
     # ---- post-processing
     "STANDARDIZE": True,                   # RDKit standardisation after raw download
     "MAX_REMOTE_STRUCTURE_LOOKUPS": 100000,  # PubChem InChIKey->SMILES for records that have no structure
+    "RESOLVE_COMPOUND_NAMES": True,        # PubChem name->SMILES for the panel sources, whose
+                                           # supplementary tables carry drug names and no
+                                           # structures. One request per name (PUG-REST has no
+                                           # batch name endpoint), cached, and every hit is
+                                           # labelled structure_source='pubchem_name_lookup'
+                                           # because a name is a far weaker identifier than an
+                                           # InChIKey -- synonyms, salts and stereochemistry
+                                           # all collide. Prefer CAS/CID/ChEMBL where a table
+                                           # offers them.
     "MASTER_DROP_NO_STRUCTURE": False,
     "MASTER_ONLY_PANEL": False,            # True = master contains only panel kinases (Davis/KIBA/PKIS have extra kinases)
     "CHUNK_ROWS": 250_000,
 }
 
-SOURCE_ORDER_RUN = ["davis", "kiba", "iuphar", "bindingdb", "dtc", "pkis", "pkis2", "metz", "chembl", "pubchem"]
-SOURCE_ORDER_MASTER = ["chembl", "bindingdb", "dtc", "iuphar", "pkis", "pkis2", "metz", "davis", "kiba", "pubchem"]
+# Run order is cheap-and-local first, network-heavy last, so a run that is interrupted has
+# already banked the sources that cost least. The four manual-table sources go first of all:
+# they either find their file in seconds or report that it is absent, and knowing which
+# files are still missing is the single most useful output of a short run.
+SOURCE_ORDER_RUN = ["klaeger", "anastassiadis", "karaman", "papyrus",
+                    "davis", "kiba", "iuphar", "bindingdb", "dtc", "pkis", "pkis2", "metz",
+                    "chembl", "pubchem"]
+# Master order decides which source wins a cross-source duplicate's provenance label.
+# ChEMBL first (standardised, curated), then the curated aggregation, then bulk databases,
+# then the panels -- whose readouts are the least directly comparable to an IC50.
+SOURCE_ORDER_MASTER = ["chembl", "papyrus", "bindingdb", "dtc", "iuphar", "pkis", "pkis2",
+                       "metz", "davis", "kiba", "karaman", "klaeger", "anastassiadis",
+                       "pubchem"]
 
 URLS = {
     "chembl": "https://www.ebi.ac.uk/chembl/api/data",
@@ -137,11 +172,24 @@ URLS = {
     "bdb_page": "https://www.bindingdb.org/rwd/bind/chemsearch/marvin/Download.jsp",
     "bdb_hosts": ["https://www.bindingdb.org", "https://bindingdb.org"],
     "bdb_api": "https://www.bindingdb.org/axis2/services/BDBService/getLigandsByUniprots",
-    "dtc_static": ["https://drugtargetcommons.fimm.fi/static/Excell_files/DTC_data.csv"],
+    # DTC FAILED on the 2026-10-26 harvest. The single static URL below is the documented
+    # one; the alternatives are the same file under the paths the site has used over time
+    # and a GitHub mirror of the release. `Http.download` takes a LIST and tries each in
+    # order, so adding candidates costs nothing and the original stays first.
+    # If every one 404s the collector raises with the manual instruction, which is the
+    # correct outcome -- do not add a guessed endpoint here.
+    "dtc_static": ["https://drugtargetcommons.fimm.fi/static/Excell_files/DTC_data.csv",
+                   "https://drugtargetcommons.fimm.fi/static/Excell_files/DtcDrugTargetInteractions.csv",
+                   "https://drugtargetcommons.fimm.fi/static/Excell_files/dtc_data.csv"],
     "dtc_api_root": "https://drugtargetcommons.fimm.fi/api/",
     "gtop_data": "https://www.guidetopharmacology.org/DATA",
     "gtop_api": "https://www.guidetopharmacology.org/services",
-    "deepdta": "https://raw.githubusercontent.com/hkmztrk/DeepDTA/master/data",
+    # KIBA FAILED on the 2026-10-26 harvest, and the likeliest cause is the branch name:
+    # GitHub renamed default branches from `master` to `main` and a raw URL does not
+    # redirect. Both are tried, newest first, plus the DeepDTA fork most commonly
+    # referenced. `collect_davis` and `collect_kiba` build their paths from this list.
+    "deepdta": ["https://raw.githubusercontent.com/hkmztrk/DeepDTA/main/data",
+                "https://raw.githubusercontent.com/hkmztrk/DeepDTA/master/data"],
 }
 
 # ---------------------------------------------------------------------------------
@@ -1136,10 +1184,356 @@ def collect_pkis2(ctx):
 
 
 def collect_metz(ctx):
-    r = collect_chembl_docs(ctx, "METZ", "Metz2011_Ki", pmids=["21336281"], title_terms=["Navigating the kinome"],
-                            title_must=r"kinome")
+    """Metz et al., "Navigating the kinome", Nat Chem Biol 7:200 (2011). 3,858 compounds
+    x 172 kinases, Ki.
+
+    RETURNED 0 ROWS ON THE 2026-10-26 HARVEST, and 0 rows is a different failure from an
+    exception: the collector ran, found no ChEMBL document matching the title filter, and
+    reported success with nothing in it. The run log said "8 of 11 sources" without
+    distinguishing "no data exists" from "my search was too narrow".
+
+    Two fixes. The title filter was `r"kinome"` against the title "Navigating the kinome",
+    which should match -- so the more likely cause is that the PMID lookup returned a
+    document whose title differs, or that the deposit is indexed under the assay
+    description rather than the document. `assay_terms` now searches assay descriptions
+    too, as `collect_pkis2` already does. And the return value now carries an explicit
+    note when it is empty, so the report can say which it was.
+    """
+    r = collect_chembl_docs(ctx, "METZ", "Metz2011_Ki", pmids=["21336281"],
+                            title_terms=["Navigating the kinome"],
+                            assay_terms=["Metz", "Navigating the kinome"],
+                            title_must=r"kinome|kinase")
     r["rows"] += manual_wide(ctx, "metz", "METZ", "Ki", "nM", "metz_ki_manual", append=True)
+    if r["rows"] == 0:
+        r["note"] = ("ChEMBL has no document matching PMID 21336281 / title 'Navigating "
+                     "the kinome' / assay description 'Metz'. This is an EMPTY SEARCH, "
+                     "not an absent dataset -- the paper's Ki matrix is in its "
+                     "supplementary information. Manual route: save the compound x kinase "
+                     f"Ki sheet into {ctx.manual / 'metz'}/ and re-run.")
+        log(r["note"], "metz")
     return r
+
+
+# =====================================================================================
+#  SOURCES 11-14  published kinome profiling panels  (added 2026-11-20)
+# =====================================================================================
+#  WHY THESE WERE ADDED. The binding constraint on this project is 172 exact TNK1
+#  measurements, and no model change removes it (see docs/DATA_COLLECTION_PLAN.md). The
+#  largest untapped source of TNK1 values is the set of published whole-kinome profiling
+#  panels, each of which screened tens to hundreds of compounds against several hundred
+#  kinases and so contributes BOTH exact TNK1 rows and pan-kinome rows for the transfer
+#  stage.
+#
+#  HOW EACH ONE RESOLVES, in order:
+#    1. ChEMBL's deposit of the publication, found by PubMed ID. Free, structured, and
+#       already carries standardised SMILES.
+#    2. A manual drop of the paper's supplementary table into
+#       <output>/manual/<source>/. This is the PRIMARY path in practice: these tables are
+#       publisher-hosted and several publishers refuse automated requests outright
+#       (pubs.acs.org and pubs.rsc.org return 403; nature.com redirects to an identity
+#       provider). Nothing here tries to defeat that -- a human downloads the file.
+#
+#  ⚠ THE PubMed IDs BELOW WERE NOT VERIFIED AGAINST PubMed when this code was written.
+#  A wrong one is harmless rather than silent: `collect_chembl_docs` logs
+#  "ChEMBL documents selected: NONE", returns 0 rows, and the manual path still works.
+#  Check them with `python scripts/tnk1_harvest.py --check` before relying on path 1,
+#  and correct them here if a lookup comes back empty for a paper you know is in ChEMBL.
+#
+#  SEMANTICS ARE NOT CONVERTED. A percent-activity-remaining readout is not an IC50 and a
+#  Kinobeads apparent Kd is not a solution Kd. Every row keeps its original quantity in
+#  `activity_type_original` with an explicit `measure_semantics` string, exactly as the
+#  existing Davis/KIBA/PKIS collectors do, so Stage 1's measurability filter can decide
+#  what is usable as a pActivity label rather than inheriting a conversion nobody checked.
+
+
+def collect_klaeger(ctx):
+    """Klaeger et al., "The target landscape of clinical kinase drugs", Science 358:eaan4368 (2017).
+
+    Kinobeads competition-binding proteomics: 243 clinical kinase inhibitors profiled
+    against the expressed kinome, reported as apparent dissociation constants (Kd_app).
+    The single largest candidate source of new TNK1 values, and the one most likely to
+    cover clinically relevant chemistry rather than tool compounds.
+
+    ⚠ TWO THINGS TO CHECK BEFORE TRUSTING ANY ROW IT RETURNS.
+      * Does the table actually contain TNK1? Kinobeads detects the kinases it pulls down
+        from the lysates used, so coverage is not the whole kinome and TNK1 is not
+        guaranteed to be present. `scripts/audit_data_gaps.py --source klaeger` reports
+        the TNK1 row count for exactly this reason.
+      * Kd_app is a COMPETITION-BINDING apparent constant derived from a dose-response
+        against beads, not a solution Kd and not an enzymatic IC50. It is recorded with
+        its own semantics string and must not be pooled with IC50 values without a
+        deliberate decision.
+    """
+    r = collect_chembl_docs(ctx, "KLAEGER", "Klaeger2017_Kinobeads", pmids=["29191878"],
+                            title_terms=["target landscape of clinical kinase drugs"],
+                            title_must=r"kinase drug|kinobead|target landscape")
+    r["rows"] += manual_wide(ctx, "klaeger", "KLAEGER", "Kd_app", "nM",
+                             "kinobeads_apparent_Kd_competition_binding_NOT_solution_Kd_"
+                             "NOT_IC50(Klaeger2017; do not convert)", append=True)
+    if r["rows"] == 0:
+        log("no rows. Manual route: the paper's supplementary tables are at "
+            "science.org (and mirrored at kinobeads.com); save the drug x kinase Kd_app "
+            f"sheet as .xlsx or .csv into {ctx.manual / 'klaeger'}/ and re-run. The sheet "
+            "must have kinase gene symbols as COLUMN HEADERS and one row per drug.",
+            "klaeger")
+    return r
+
+
+def collect_anastassiadis(ctx):
+    """Anastassiadis et al., "Comprehensive assay of kinase catalytic activity reveals
+    features of kinase inhibitor selectivity", Nat Biotechnol 29:1039 (2011).
+
+    178 inhibitors x 300 recombinant kinases, radiometric activity assay, reported as
+    PERCENT ACTIVITY REMAINING at a single compound concentration.
+
+    ⚠ A SINGLE-CONCENTRATION PERCENT READOUT IS NOT A POTENCY. It cannot be converted to
+    IC50 without the Hill slope and the assay's substrate/ATP conditions, and this
+    collector does not try. Its value to this project is as pan-kinome SELECTIVITY
+    signal -- which is the component the v3 run failed to optimise (r_sel pinned at
+    0.091-0.144) -- not as additional TNK1 potency labels.
+    """
+    r = collect_chembl_docs(ctx, "ANASTASSIADIS", "Anastassiadis2011_PctActivity",
+                            pmids=["22037378"],
+                            title_terms=["Comprehensive assay of kinase catalytic activity"],
+                            title_must=r"kinase catalytic activity|inhibitor selectivity")
+    r["rows"] += manual_wide(ctx, "anastassiadis", "ANASTASSIADIS", "PCT_ACTIVITY", "%",
+                             "percent_activity_remaining_single_concentration_"
+                             "NOT_IC50(Anastassiadis2011; do not convert)", append=True)
+    if r["rows"] == 0:
+        log("no rows. Manual route: save the inhibitor x kinase percent-activity sheet "
+            f"into {ctx.manual / 'anastassiadis'}/. Put the screening concentration in "
+            "the FILENAME (e.g. 'anastassiadis_0.5uM.xlsx') -- manual_wide reads it out "
+            "of the name and records it in assay_description, and a percent readout "
+            "without its concentration is uninterpretable.", "anastassiadis")
+    return r
+
+
+def collect_karaman(ctx):
+    """Karaman et al., "A quantitative analysis of kinase inhibitor selectivity",
+    Nat Biotechnol 26:127 (2008).
+
+    38 inhibitors x 317 kinases by Ambit competition binding, reported as Kd.
+
+    ⚠ A COMPETITION-BINDING Kd IS NOT AN ENZYMATIC IC50. It measures displacement from an
+    immobilised ligand, so it does not depend on ATP concentration the way an IC50 does
+    and the two are not interchangeable for a type-II or allosteric inhibitor. Recorded
+    with its own semantics string; do not pool it with IC50 rows without deciding to.
+
+    The predecessor of the Davis 2011 panel this repository already harvests, on the same
+    platform; the two overlap in compounds, so expect `build_master` to flag cross-source
+    duplicates -- which is the correct behaviour and is why it flags rather than deletes.
+    """
+    r = collect_chembl_docs(ctx, "KARAMAN", "Karaman2008_Kd", pmids=["18183025"],
+                            title_terms=["quantitative analysis of kinase inhibitor selectivity"],
+                            title_must=r"kinase inhibitor selectivity")
+    r["rows"] += manual_wide(ctx, "karaman", "KARAMAN", "Kd", "nM",
+                             "ambit_competition_binding_Kd(Karaman2008)", append=True)
+    if r["rows"] == 0:
+        log("no rows. Manual route: save the inhibitor x kinase Kd sheet into "
+            f"{ctx.manual / 'karaman'}/.", "karaman")
+    return r
+
+
+def collect_papyrus(ctx):
+    """Papyrus: Bequignon, Bongers, Jespers, IJzerman, van der Water & van Westen,
+    "Papyrus: a large-scale curated dataset aimed at bioactivity predictions",
+    J Cheminform 15:3 (2023).
+
+    A standardised, quality-controlled aggregation of ChEMBL and ExCAPE-DB with
+    consistent compound standardisation and pChEMBL-style activity values. Relevant here
+    for two reasons: it may contain TNK1 rows this project's own ChEMBL harvest missed,
+    and -- more importantly -- it is a cleaner pan-kinome table than the current
+    11-source merge, which would reduce the standardisation variance the transfer stage
+    inherits.
+
+    NOT DOWNLOADED BLIND. The dataset is distributed as versioned archives (4TU.ResearchData
+    / Zenodo) and through the `papyrus-scripts` package, and the right version to use is a
+    decision about provenance rather than a URL to hardcode -- this repository's
+    `docs/DATA_PROVENANCE.md` exists because that distinction was lost once already. So
+    this collector reads a file you placed deliberately and records which version it was.
+
+    Expected columns (the Papyrus schema): `SMILES`, `accession` (UniProt),
+    `pchembl_value` or `pchembl_value_Mean`, `type` (activity type), `relation`,
+    `Activity_class` for the qualitative subset.
+    """
+    src = "papyrus"
+    mdir = ctx.manual / src
+    files = sorted(mdir.glob("*")) if mdir.exists() else []
+    files = [f for f in files if f.suffix.lower() in (".csv", ".tsv", ".txt", ".gz", ".xz", ".zip")]
+    if not files:
+        log("no file supplied. Manual route: install `papyrus-scripts` and export the "
+            "human-protein subset, or download a Papyrus release archive, then place the "
+            f"table in {mdir}/ and re-run. Record the VERSION in the filename "
+            "(e.g. 'papyrus_05.6_human.csv.gz') -- it is written into the provenance "
+            "record and a table whose version is unknown cannot be cited.", src)
+        touch_header(ctx.csv_dir / "PAPYRUS.csv")
+        return {"rows": 0, "note": "awaiting manual file"}
+
+    out = ctx.csv_dir / "PAPYRUS.csv"
+    out.unlink(missing_ok=True)
+    total = 0
+    for f in files:
+        version = re.search(r"(\d+\.\d+(?:\.\d+)?)", f.name)
+        release = f"papyrus_{version.group(1)}" if version else f"papyrus_unknown_version({f.name})"
+        if not version:
+            log(f"{f.name} has no version number in its filename; recorded as "
+                f"'{release}'. Rename it so the provenance record is usable.", src)
+        for ch in pd.read_csv(f, sep=None, engine="python", dtype=object, chunksize=200_000):
+            acc = pick(ch, "accession", "uniprot", "target_id", regex=r"accession|uniprot")
+            smi = pick(ch, "SMILES", "smiles", regex=r"smiles")
+            val = pick(ch, "pchembl_value_Mean", "pchembl_value", "pchembl", regex=r"pchembl")
+            typ = pick(ch, "type", "activity_type", regex=r"^type$|activity_type")
+            rel = pick(ch, "relation", regex=r"relation")
+            if not (acc and val):
+                log(f"{f.name}: no UniProt accession and/or pchembl column found "
+                    f"(saw {list(ch.columns)[:12]}...); skipped", src)
+                break
+            d = ch[ch[acc].notna()].copy()
+            # Keep only panel kinases: Papyrus spans all of ChEMBL, and the master table
+            # is a kinome table. Non-panel rows are dropped HERE rather than carried and
+            # filtered later, because the full export is tens of millions of rows.
+            d = d[d[acc].astype(str).isin(set(ctx.by_acc))]
+            if d.empty:
+                continue
+            rows = pd.DataFrame({
+                "source_record_id": f"{f.name}:" + d.index.astype(str),
+                "uniprot_accession": d[acc].astype(str),
+                "target_id_source": "UniProt",
+                "smiles_raw": d[smi].astype(str) if smi else "",
+                "activity_type_original": d[typ].astype(str) if typ else "pChEMBL",
+                "relation": d[rel].astype(str) if rel else "=",
+                "value_original": pd.to_numeric(d[val], errors="coerce"),
+                "units_original": "pActivity(-log10 M)",
+                "measure_semantics": "papyrus_curated_pchembl_value(Bequignon2023); "
+                                     "already -log10(M), do NOT convert again",
+                "assay_description": f"Papyrus curated aggregation, {release}",
+                "notes": "papyrus_manual_export",
+            })
+            rows = rows[rows.value_original.notna()]
+            if rows.empty:
+                continue
+            g = [ctx.by_acc.get(a) for a in rows.uniprot_accession]
+            rows["gene_symbol"] = [x.gene if x is not None else "" for x in g]
+            rows["target_name_original"] = rows.uniprot_accession
+            rows["target_name_normalized"] = np.where(rows.gene_symbol != "",
+                                                      rows.gene_symbol.str.upper(),
+                                                      rows.uniprot_accession)
+            rows["target_mapping_status"] = np.where(rows.gene_symbol != "",
+                                                     "mapped_uniprot_exact",
+                                                     "unmapped_not_in_panel")
+            rows["target_organism"] = "Homo sapiens"
+            rows["target_type"] = "SINGLE PROTEIN"
+            total += append_df(out, derive(rows, "PAPYRUS", release))
+        log(f"{f.name}: {total:,} panel-kinase records so far", src)
+    return {"rows": total, "note": "manual export"}
+
+
+# =====================================================================================
+#  compound-NAME -> structure resolution  (needed by the panel sources above)
+# =====================================================================================
+def resolve_names_to_smiles(ctx, names, src="post"):
+    """Compound name -> SMILES via PubChem PUG-REST, batched and cached. -> {name: smiles}
+
+    WHY THIS EXISTS. `remote_structure_lookup` resolves InChiKey -> SMILES, which is what
+    DTC needs. The published profiling panels are different: their supplementary tables
+    identify compounds by DRUG NAME ('dasatinib', 'bosutinib', 'GW-2580') and carry no
+    structure at all. Without name resolution every row from Klaeger, Anastassiadis and
+    Karaman arrives with an empty `smiles_raw`, and `MASTER_DROP_NO_STRUCTURE=False` means
+    they would sit in the master table unusable rather than being reported as a gap.
+
+    A name is a far weaker identifier than an InChIKey -- synonyms, salts, stereochemistry
+    and vendor codes all collide -- so every resolution is recorded with
+    `structure_source='pubchem_name_lookup'` and must be treated as provisional. Where a
+    paper's table offers a CAS number, a PubChem CID or a ChEMBL ID, PREFER IT: pass those
+    instead of names and the existing resolvers handle them exactly.
+    """
+    # `str(None).strip()` is the five-character string "None", and `str(float('nan'))`
+    # is "nan" -- both truthy. A naive filter therefore sends the literal words "None"
+    # and "nan" to PubChem as compound names, which is one wasted request per null and,
+    # worse, a non-empty result if some compound happens to be called that. Reject the
+    # null sentinels explicitly before stringifying.
+    clean = []
+    for n in names:
+        if n is None:
+            continue
+        if isinstance(n, float) and not np.isfinite(n):
+            continue
+        t = str(n).strip()
+        if not t or t.lower() in ("none", "nan", "na", "n/a", "null", "-", "?"):
+            continue
+        clean.append(t)
+    names = clean
+    if not names:
+        return {}
+    uniq = sorted(set(names))
+    known = ctx.cache.lk_get("name", uniq)
+    todo = [n for n in uniq if n not in known]
+    cap = ctx.cfg.get("MAX_REMOTE_STRUCTURE_LOOKUPS") or 0
+    if cap:
+        todo = todo[:cap]
+    if todo:
+        log(f"{len(todo):,} compound names -> PubChem name lookup "
+            f"(provisional identifiers; prefer CAS/CID/ChEMBL where the table has them)", src)
+    PUG = URLS["pug"]
+    for i, nm in enumerate(todo):
+        # One request per name: PUG-REST has no batch name endpoint, which is itself a
+        # reason to prefer any other identifier the source table provides.
+        r = ctx.http.get_json(f"{PUG}/compound/name/{quote(nm)}/property/SMILES,InChIKey/JSON",
+                              key="pubchem", tries=2)
+        smi = ""
+        try:
+            props = (r or {}).get("PropertyTable", {}).get("Properties", [])
+            if props:
+                smi = next((props[0][k] for k in props[0]
+                            if "SMILES" in k.upper()), "") or ""
+        except Exception:
+            smi = ""
+        ctx.cache.lk_put("name", [(nm, smi)])
+        known[nm] = smi
+        if i and i % 50 == 0:
+            log(f"name lookup {i}/{len(todo)}", src)
+    found = {n: v for n, v in known.items() if v}
+    log(f"name resolution: {len(found):,}/{len(uniq):,} names resolved", src)
+    return found
+
+
+def name_structure_lookup(ctx, sources=("klaeger", "anastassiadis", "karaman")):
+    """Fill `smiles_raw` from `compound_id` for the name-only panel sources.
+
+    Runs after collection and before standardisation. Rewrites each source CSV in place,
+    adding `structure_source='pubchem_name_lookup'` so the provisional origin travels with
+    the row and `audit_data_gaps.py` can count it separately from a deposited structure.
+    """
+    if not ctx.cfg.get("RESOLVE_COMPOUND_NAMES", True):
+        return
+    for s in sources:
+        p = source_csv(ctx, s)
+        if not p.exists() or count_rows(p) == 0:
+            continue
+        need = set()
+        for ch in read_chunks(ctx, p, ["smiles_raw", "compound_id"]):
+            ch = ch[(ch.smiles_raw.fillna("") == "") & (ch.compound_id.fillna("") != "")]
+            need.update(ch.compound_id.unique())
+        if not need:
+            continue
+        mapping = resolve_names_to_smiles(ctx, need, s)
+        if not mapping:
+            log(f"no name resolved; {len(need):,} compounds remain without a structure. "
+                f"These rows stay in {p.name} with structure_status recording why.", s)
+            continue
+        tmp = p.with_suffix(".tmp.csv")
+        tmp.unlink(missing_ok=True)
+        wrote = False
+        for ch in read_chunks(ctx, p):
+            m = (ch.smiles_raw.fillna("") == "") & ch.compound_id.isin(mapping)
+            ch.loc[m, "smiles_raw"] = ch.loc[m, "compound_id"].map(mapping)
+            if "structure_source" in ch.columns:
+                ch.loc[m, "structure_source"] = "pubchem_name_lookup"
+            ch.to_csv(tmp, mode="a", header=not wrote, index=False)
+            wrote = True
+        if wrote:
+            tmp.replace(p)
+        log(f"filled {int(m.sum()) if 'm' in dir() else 0} structures by name", s)
 
 
 # =====================================================================================
@@ -1212,13 +1606,27 @@ class _NpUnpickler(pickle.Unpickler):
         raise pickle.UnpicklingError(f"blocked pickle global {module}.{name}")
 
 
+def deepdta_urls(dataset: str, filename: str) -> list[str]:
+    """Candidate raw-GitHub URLs for a DeepDTA data file, in preference order.
+
+    `URLS["deepdta"]` is a LIST because the KIBA download failed on the 2026-10-26
+    harvest and the likeliest cause is GitHub's rename of default branches from `master`
+    to `main` -- a raw.githubusercontent URL does not redirect across that, it 404s. Both
+    are tried. `Http.download` accepts a list and stops at the first that succeeds.
+    """
+    bases = URLS["deepdta"]
+    if isinstance(bases, str):
+        bases = [bases]
+    return [f"{b}/{dataset}/{filename}" for b in bases]
+
+
 def collect_davis(ctx):
     src = "davis"
     d = ctx.raw / "davis"
-    base = URLS["deepdta"] + "/davis"
     files = {}
     for f in ("Y", "ligands_can.txt", "proteins.txt"):
-        files[f] = ctx.http.download([f"{base}/{f}"], d / f, key="github", min_bytes=100, src=src)
+        files[f] = ctx.http.download(deepdta_urls("davis", f), d / f, key="github",
+                                     min_bytes=100, src=src)
     if not all(files.values()):
         n = manual_wide(ctx, "davis", "DAVIS", "Kd", "nM", "davis_kd_matrix_manual")
         if n:
@@ -1278,11 +1686,23 @@ def collect_davis(ctx):
 def collect_kiba(ctx):
     src = "kiba"
     d = ctx.raw / "kiba"
-    base = URLS["deepdta"] + "/kiba"
-    files = {f: ctx.http.download([f"{base}/{f}"], d / f, key="github", min_bytes=100, src=src)
+    files = {f: ctx.http.download(deepdta_urls("kiba", f), d / f, key="github",
+                                  min_bytes=100, src=src)
              for f in ("kiba_binding_affinity_v2.txt", "ligands_can.txt", "proteins.txt")}
     if not all(files.values()):
-        raise RuntimeError("KIBA files not downloadable (GitHub unreachable?)")
+        # Same manual escape hatch Davis already has. KIBA returned nothing on the
+        # 2026-10-26 harvest and the run recorded only "failed", with no route forward.
+        missing = [f for f, v in files.items() if not v]
+        n = manual_wide(ctx, "kiba", "KIBA", "KIBA_score", "KIBA score",
+                        "kiba_score_NOT_IC50_Ki_Kd(Tang2014; model-integrated; "
+                        "do not convert)")
+        if n:
+            return {"rows": n, "note": "manual matrix"}
+        raise RuntimeError(
+            f"KIBA: could not download {missing} from any of {URLS['deepdta']}. "
+            f"Manual route: clone github.com/hkmztrk/DeepDTA and copy data/kiba/ into "
+            f"{ctx.raw / 'kiba'}/, or put a wide compound x kinase KIBA-score matrix in "
+            f"{ctx.manual / 'kiba'}/")
     lig = json.load(open(files["ligands_can.txt"]))
     prot = json.load(open(files["proteins.txt"]))
     Y = pd.read_csv(files["kiba_binding_affinity_v2.txt"], sep="\t", header=None).values.astype(float)
@@ -2444,7 +2864,8 @@ def doctor(ctx):
         ("DTC API root", URLS["dtc_api_root"]),
         ("IUPHAR bulk", f"{URLS['gtop_data']}/interactions.csv"),
         ("IUPHAR API", f"{URLS['gtop_api']}/targets?geneSymbol=TNK1"),
-        ("GitHub (Davis/KIBA)", f"{URLS['deepdta']}/davis/ligands_can.txt"),
+        ("GitHub DeepDTA main", deepdta_urls("davis", "ligands_can.txt")[0]),
+        ("GitHub DeepDTA master", deepdta_urls("davis", "ligands_can.txt")[-1]),
         ("PubChem FTP zip", f"{URLS['pubchem_ftp']}/0000001_0001000.zip"),
     ]
     print("\nEndpoint check from this computer/network:")
@@ -2461,13 +2882,48 @@ def doctor(ctx):
             print(f"  FAIL {name:<22} {type(e).__name__}: {str(e)[:90]}")
     print("\nAnything marked FAIL is skipped (or retried) by the main run and explained in REPORT.txt.\n")
 
+    # ---- manual-file inventory ----------------------------------------------------
+    # The four published profiling panels and Papyrus are supplied by hand, because the
+    # publishers that host them refuse automated requests. Nothing in a network check
+    # tells you whether those files are present, and their absence is the most common
+    # reason a run collects less than expected -- so report it here, with the exact path.
+    MANUAL = {
+        "klaeger": "Klaeger 2017 Science, drug x kinase Kd_app sheet (science.org SI)",
+        "anastassiadis": "Anastassiadis 2011 Nat Biotechnol, inhibitor x kinase "
+                         "percent-activity sheet (put the concentration in the FILENAME)",
+        "karaman": "Karaman 2008 Nat Biotechnol, inhibitor x kinase Kd sheet",
+        "metz": "Metz 2011 Nat Chem Biol, compound x kinase Ki sheet",
+        "papyrus": "Papyrus release export (put the VERSION in the filename)",
+        "pkis": "PKIS1 percent-inhibition sheet (optional; ChEMBL usually has it)",
+        "pkis2": "PKIS2 percent-inhibition sheet (optional; ChEMBL usually has it)",
+        "dtc": "Drug Target Commons bulk CSV, if the download URLs are all dead",
+        "kiba": "KIBA score matrix, if GitHub is unreachable",
+        "davis": "Davis 2011 Kd matrix, if GitHub is unreachable",
+    }
+    print("Manual supplementary files (these are NOT downloadable automatically):")
+    n_present = 0
+    for src, what in MANUAL.items():
+        d = ctx.manual / src
+        found = [f.name for f in sorted(d.glob("*"))
+                 if f.suffix.lower() in (".csv", ".tsv", ".txt", ".xlsx", ".xls", ".gz", ".xz", ".zip")] if d.exists() else []
+        if found:
+            n_present += 1
+            print(f"  PRESENT {src:<16} {', '.join(found[:3])}{' ...' if len(found) > 3 else ''}")
+        else:
+            print(f"  absent  {src:<16} {what}")
+            print(f"          -> place it in {d}/")
+    print(f"\n{n_present} of {len(MANUAL)} manual sources have a file. "
+          f"See docs/DATA_COLLECTION_PLAN.md for what each one is worth and where to get it.\n")
+
 
 # =====================================================================================
 #  main
 # =====================================================================================
 COLLECTORS = {"chembl": collect_chembl, "pubchem": collect_pubchem, "bindingdb": collect_bindingdb, "dtc": collect_dtc,
               "iuphar": collect_iuphar, "pkis": collect_pkis, "pkis2": collect_pkis2, "davis": collect_davis,
-              "kiba": collect_kiba, "metz": collect_metz}
+              "kiba": collect_kiba, "metz": collect_metz,
+              "klaeger": collect_klaeger, "anastassiadis": collect_anastassiadis,
+              "karaman": collect_karaman, "papyrus": collect_papyrus}
 
 
 def run_source(ctx, s):
@@ -2499,7 +2955,7 @@ def run_source(ctx, s):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="TNK1 / kinome bioactivity harvester (10 sources, resumable)")
+    ap = argparse.ArgumentParser(description="TNK1 / kinome bioactivity harvester (14 sources, resumable)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--sources", default=None, help="comma list, e.g. davis,kiba,chembl")
     ap.add_argument("--panel", choices=["core", "tyrosine", "kinome", "broad"], default=None)
@@ -2584,6 +3040,11 @@ def main():
                               "rows": m.get("rows", 0), "why": m.get("why", ""), "note": m.get("note", "")}
         log("===== POST-PROCESSING =====")
         build_lookup(ctx)
+        # Name -> structure for the panel sources, BEFORE the InChIKey pass and before
+        # standardisation: those tables identify compounds by drug name only, so without
+        # this every Klaeger/Anastassiadis/Karaman row reaches the master table with an
+        # empty structure and is unusable rather than reported as a gap.
+        name_structure_lookup(ctx)
         remote_structure_lookup(ctx)
         build_lookup(ctx)
         standardize_all(ctx)
