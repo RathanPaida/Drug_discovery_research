@@ -270,7 +270,9 @@ rl:
   # ---- Stage 7b: alternative policy-optimisation objectives (see configs/default.yaml
   # for the full commentary). `--algo dap` is the default and reads none of these.
   # rl_min/run_rl.py REFUSES a key the selected trainer does not read.
-  ahc:        {topk: 0.5, ahc_min_keep: 8}
+  augmem:     {am_rounds: 2, am_randomise: true, am_purge: true}
+  drgrpo:     {pg_advantage: mean, pg_clip: 0.2, pg_epochs: 1, kl_coef: 0.02, kl_target: null}
+  ahc:        {topk: 0.5, ahc_min_keep: 8, ahc_likelihood_penalty: 0.0}
   grpo:       {pg_advantage: grpo, pg_clip: 0.2, pg_epochs: 1, kl_coef: 0.02, kl_target: null}
   rloo:       {pg_advantage: rloo, kl_coef: 0.02, kl_target: null}
   ppo:        {pg_advantage: mean, pg_clip: 0.2, pg_epochs: 4, kl_coef: 0.02, kl_target: null}

@@ -283,6 +283,32 @@ rl:
   # `--algo dap` is the default and reads none of these, so an existing command line
   # reproduces the v3 run of record bit-for-bit.
 
+  augmem:                     # Augmented Memory (Guo & Schwaller)
+    am_rounds: 2              # A: augmentation rounds per step. Each replays the WHOLE
+                              # buffer with the SMILES re-randomised, so each oracle call
+                              # yields several gradient signals. This is where the sample
+                              # efficiency comes from: PMO summed AUC Top-10 15.002 against
+                              # REINVENT's 14.016, winning 19 of 23 tasks.
+    am_randomise: true        # re-randomise SMILES each round (Bjerrum 2017). Half the
+                              # mechanism: without it the agent memorises one spelling.
+                              # A no-op without RDKit, and the trainer warns if so.
+    am_purge: true            # Selective Memory Purge: drop buffer entries whose scaffold
+                              # the diversity filter has saturated. NOT optional with
+                              # whole-buffer replay -- it is what stops A rounds per step
+                              # amplifying whichever scaffold arrived first.
+
+  drgrpo:                     # Dr. GRPO (Liu et al. 2025, arXiv:2503.20783)
+    pg_advantage: mean        # A_i = R_i - mean(R). NO division by the group std, which is
+                              # the whole point: a reward component pinned at its floor has
+                              # near-zero within-batch spread, so GRPO's /std inflates
+                              # floating-point noise into large advantages. r_sel sat at
+                              # 0.091-0.144 for all 1000 steps of the v3 run, which is
+                              # exactly that regime. Prefer this over `grpo` here.
+    pg_clip: 0.2
+    pg_epochs: 1
+    kl_coef: 0.02
+    kl_target: null
+
   ahc:                        # Augmented Hill-Climb (Thomas et al., J Cheminform 2022)
     topk: 0.5                 # fraction of each batch the loss is computed on. The
                               # paper's sample-efficiency claim rests on this: DAP
@@ -291,6 +317,16 @@ rl:
                               # is just the prior -- so the update spends gradient pulling
                               # the agent back toward chemistry it already knows.
     ahc_min_keep: 8           # never update on fewer than this, whatever topk works out to
+    ahc_likelihood_penalty: 0.0
+                              # the reference implementation adds -mean(1/agent_nll) at
+                              # weight 5e3, which discourages driving any one sequence's
+                              # likelihood arbitrarily high -- hill-climbing's usual mode
+                              # collapse. 0.0 here so `ahc` differs from `dap` in ONE
+                              # variable; set 5000 to reproduce the published setup.
+                              # ALSO: the reference drops sigma from 128 to 60 for AHC,
+                              # because discarding the bottom half of the batch already
+                              # concentrates the update. Halve rl.sigma when using --algo ahc
+                              # or the effective step size is doubled.
 
   grpo:                       # Group-relative policy optimisation (Shao et al. 2024)
     pg_advantage: grpo        # the batch IS the group: no prompt, one shared comparison set

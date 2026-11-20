@@ -62,14 +62,14 @@ use job arrays with a `%` concurrency cap, which Slurm enforces itself:
 ```bash
 bash hpc/run_sweeps.sh models          # zoo -> stack, both CPU. ~1-2 h, no GPU needed
 bash hpc/run_sweeps.sh reps            # representation sweep, 6 CPU array tasks
-bash hpc/run_sweeps.sh rl              # 6 RL objectives, GPU array, 2 concurrent
+bash hpc/run_sweeps.sh rl              # 8 RL objectives, GPU array, 2 concurrent
 bash hpc/run_sweeps.sh all             # models -> reps -> rl, chained
 bash hpc/run_sweeps.sh rl --dry-run    # print the sbatch lines, queue nothing
 ```
 
 Or submit one array directly:
 ```bash
-sbatch --array=0-5%2 hpc/submit_array.sh rlalgo    # dap ahc grpo rloo ppo gflownet
+sbatch --array=0-7%2 hpc/submit_array.sh rlalgo    # dap augmem ahc drgrpo rloo ppo grpo gflownet
 sbatch --array=0-5%4 hpc/submit_array.sh zoorep    # 6 representations
 sbatch --array=0-9%2 hpc/submit_array.sh transfer  # 10 fine-tuning strategies
 sbatch --array=0-3%4 hpc/submit_array.sh zoo       # 4 model shortlists by tag

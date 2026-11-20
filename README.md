@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![RDKit](https://img.shields.io/badge/RDKit-2023.09+-brightgreen.svg)](https://www.rdkit.org/)
 [![AutoDock Vina](https://img.shields.io/badge/AutoDock_Vina-1.2.7-orange.svg)](https://github.com/ccsb-scripps/AutoDock-Vina)
-[![Tests](https://img.shields.io/badge/pytest-364%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/pytest-383%20passed-success.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An uncertainty-aware, deep kinome transfer learning, policy-gradient reinforcement learning, and structural molecular docking platform targeting **Tyrosine Kinase Non-Receptor 1 (TNK1, UniProt: Q13470)**.
@@ -41,7 +41,7 @@ data to collect next — please see:
 
 👉 **[Cycle 03 Plan](docs/CYCLE_03_PLAN.md)**
 
-> **Nothing in Cycle 03 has been run on real data.** The code is tested (364 hermetic
+> **Nothing in Cycle 03 has been run on real data.** The code is tested (383 hermetic
 > tests) and the HPC drivers are wired, but every model-ranking claim in that document is
 > a literature expectation, not a measurement from this project.
 
@@ -150,7 +150,7 @@ export TNK1_FEATURES_DIR=data/features
 ### 2. Run Test Suite
 ```bash
 pytest
-# 364 hermetic tests pass; 2 live-registry tests are deselected by default
+# 383 hermetic tests pass; 2 live-registry tests are deselected by default
 
 pytest -m network
 # the 2 opt-in PubChem / UniChem checks

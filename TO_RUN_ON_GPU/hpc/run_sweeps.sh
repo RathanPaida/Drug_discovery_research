@@ -4,7 +4,7 @@
 #
 #   bash hpc/run_sweeps.sh models            # zoo (CPU) -> stack (CPU).  ~1-2 h, no GPU
 #   bash hpc/run_sweeps.sh reps              # representation sweep, 6 CPU array tasks
-#   bash hpc/run_sweeps.sh rl                # 6 RL algorithms, GPU array, 2 concurrent
+#   bash hpc/run_sweeps.sh rl                # 8 RL objectives, GPU array, 2 concurrent
 #   bash hpc/run_sweeps.sh all               # models -> reps -> rl, chained
 #   bash hpc/run_sweeps.sh rl --dry-run      # print the sbatch lines, queue nothing
 #
@@ -143,7 +143,7 @@ case "$WHAT" in
     # Depends on `stack` only when both are in this invocation: the RL runs are more
     # informative against the stacked critic than against the deep ensemble that lost the
     # paired comparison, but they will run against whatever critic the config selects.
-    submit_array gpu rlalgo "$STACK" "0-5%${GPU_CONC}" rlalgo >/dev/null
+    submit_array gpu rlalgo "$STACK" "0-7%${GPU_CONC}" rlalgo >/dev/null
     ;;
 esac
 

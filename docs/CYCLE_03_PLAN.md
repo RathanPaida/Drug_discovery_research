@@ -1,7 +1,7 @@
 # Cycle 03 — what was built, what to run, and what to collect
 
 **Written:** 2026-11-20
-**Status of the code:** committed and tested (364 hermetic tests pass; 13 skip without RDKit/torch). **Nothing in this document has been run on real data yet.**
+**Status of the code:** committed and tested (383 hermetic tests pass; 13 skip without RDKit/torch). **Nothing in this document has been run on real data yet.**
 
 This is the companion to [`RUN_REPORT_V3_HPC.md`](../RUN_REPORT_V3_HPC.md), which records what the v3 run established. That report's conclusion was negative and correct: the deep ensemble that drives the RL reward is the worst model in the repository, its uncertainty is uninformative, and the generator exploited it. Everything below is addressed at that.
 
@@ -51,13 +51,18 @@ Mondrian (difficulty-conditional) conformal, CQR (Romano et al. 2019), CV+ (Barb
 ### RL — `rl_min/algos/`
 Six objectives behind the existing `train_dap` signature, so `--algo` is the only change and `dap` remains the default:
 
-| Algorithm | Paper | Why for this project |
+Ranked by the practical molecular optimisation benchmark (Gao, Fu, Sun & Coley, NeurIPS
+2022), **not by novelty** — the intuitions here are misleading:
+
+| Algorithm | PMO standing | Why for this project |
 |---|---|---|
-| `ahc` | Thomas et al., J Cheminform 14:68 (2022) | DAP on the top-k only. The reward costs an ensemble pass + 7 ADMET models per molecule; sample efficiency is the binding constraint |
-| `grpo` | Shao et al. 2024 (DeepSeekMath) | Critic-free: the batch *is* the group. No value network fitted on the same expensive reward |
-| `rloo` | Ahmadian et al., ACL 2024 | Unbiased leave-one-out baseline; reported to beat PPO for sequence alignment at a fraction of the complexity |
-| `ppo` | Schulman et al. 2017 | The clipped-surrogate control |
-| `gflownet` | Malkin et al., NeurIPS 2022 | **Samples proportional to reward rather than seeking the mode.** The structurally different answer to the diversity and selectivity collapse. On a SMILES tree P_B = 1, so trajectory balance reduces to `(log Z + log P(x) − β log R(x))²` using the existing `nll` |
+| `dap` (incumbent) | **1st of 25**, summed AUC Top-10 14.016, 1st on all six ranking metrics | The backbone is not the problem. A SMILES LSTM + REINVENT-style policy gradient is a defensible choice; the reward and the critic are what failed |
+| `augmem` | **15.002, winning 19 of 23 tasks** | Augmented Memory (Guo & Schwaller). Replays the *whole* buffer `A` times per step with SMILES re-randomised, so each oracle call yields several gradient signals — plus Selective Memory Purge, without which whole-buffer replay guarantees collapse. **The largest measured margin available** |
+| `ahc` | — | DAP on the top-k only (Thomas et al. 2022). **Halve `rl.sigma`**: the reference drops 128→60, because discarding half the batch already concentrates the update |
+| `drgrpo` | — | Dr. GRPO (Liu et al. 2025). The GRPO variant to use here: plain GRPO divides by the group std, and a component pinned at its floor has near-zero spread, so the division inflates noise into large advantages. `r_sel` sat at 0.091–0.144 for 1000 steps — exactly that regime |
+| `rloo` | — | Unbiased leave-one-out baseline (Ahmadian et al. 2024); reported to beat PPO for sequence alignment at a fraction of the complexity |
+| `ppo`, `grpo` | — | Controls |
+| `gflownet` | **17th of 25** (GFlowNet-AL 21st) | Trajectory balance (Malkin et al. 2022). Genuinely the right *shape* of answer to mode collapse — it samples ∝ reward rather than seeking the mode — but **a second-phase experiment, not a first move**: the published molecular results are fragment/graph GFlowNets, not SMILES-sequence ones; at this oracle budget they lose decisively to policy-gradient SMILES methods; and TB adds a learned partition function with its own tuning surface. If you do run one, use **sub-TB with λ=1**, not TB |
 
 And the two fixes for the actual failures, in `algos/common.py`:
 
@@ -66,6 +71,58 @@ And the two fixes for the actual failures, in `algos/common.py`:
 
 ### Critic swap — `tnk1/zoo/critic.py`
 `ZooCritic` / `StackedCritic` provide `predict_members` and `latent`, the only two methods the scorer uses. **Synthetic-member contract, stated plainly:** two members at `μ ± σ_epi` reproduce `(μ, σ_epi, σ_ale)` exactly through `decompose`. They are *not* independently trained members and `report()` says so, so no run can be mistaken for a deep-ensemble run.
+
+### The applicability domain is probably the wrong kind — `tnk1/uq/applicability.py`
+
+The most actionable single finding, and it applies directly. Langevin, Grebner, Güssregen,
+Sauer, Li, Matter & Bianciotto (*ACS Omega* 8:23148, 2023) tested 16 AD definitions on a
+SMILES LSTM generator across four targets:
+
+- **Similarity-to-training-set ADs FAIL** — verbatim, the definitions "'maxsim ECFP4',
+  'maxsim ECFP6', and 'maxsim ap' … fail to generate an high enough proportion of
+  drug-like molecules". The existing dual-space 5-NN domain is exactly that family.
+- **QED-based ADs also fail**: "measures of drug-likeness commonly used, such as QED, can
+  be optimized in unintended ways and do not constitute a valid applicability domain for
+  generative models either."
+- **The only definition that worked on every task** was a **bounding box** on
+  physicochemical descriptors *and* on **count-based** Morgan r=2 fingerprints.
+- **Count, not binary, is load-bearing here.** A binary ECFP cannot distinguish "has a
+  carboxylic acid" from "has five carboxylic acids". The v3 generator's permeability
+  collapsed *because* it drifted toward carboxylic acids (Caco-2 sigmoid 0.066) — a
+  binary-fingerprint domain is structurally blind to precisely that failure.
+- Used as a **multiplicative 0/1 term inside the reward**, not a soft penalty: "the AD is
+  taken into account in the reward function as a multiplicative term that yields 0 if the
+  molecule generated is out of the AD and 1 otherwise." And: "This reward hacking behaviour
+  is prevented by good AD definitions."
+
+`BoundingBoxAD` implements it, with `percentile=1` rather than strict min/max as the
+default — at 172 molecules one extreme compound widens a strict box enough to admit a
+region nothing supports — and `worst_features`, which turns "rejected" into "rejected
+because it has four more carboxylic acids than anything in training". That is the
+information needed to add a counter-term against the exploited channel rather than a
+generic penalty.
+
+**Two things to plan around, from the same paper.** "Counterintuitively, good applicability
+domains are associated with lower scores" — **expect the reward curve to drop and the score
+distribution to widen when this replaces the similarity AD. That is the signature of
+success; do not tune it back out.** And "good applicability domain definitions lead to
+higher diversity in addition to better drug-likeness" — the AD fix and the diversity fix
+are the same fix.
+
+### The aggregator, not the weight — `weighted_geometric_mean`
+
+Under a weighted **arithmetic** mean `∂S/∂sᵢ = ŵᵢ` is a *constant*, so moving selectivity
+0.09→0.19 is worth exactly as much as moving safety 0.89→0.99 and the optimiser rationally
+spends its capacity where improvement is cheap. Under a weighted **geometric** mean the
+*elasticity* `∂lnS/∂lnsᵢ = ŵᵢ` is constant, so *fractional* improvement pays: doubling
+0.09→0.18 multiplies the total by `2^ŵ` while 0.89→0.98 multiplies it by `1.10^ŵ` —
+several times the gradient on the floored component, for no change but the aggregator.
+`aggregate_gradient_share` is the pre-run diagnostic that would have shown `sel` as the
+loser at step 1 rather than after 165 GPU-minutes.
+
+Caveat worth knowing: REINVENT clamps components at 1e-8, so a zero component contributes
+~0.025 at a 0.2 weight share — a severe penalty, **not a veto**. For a veto, multiply by
+`BoundingBoxAD.reward_term`.
 
 ### Transfer — `tnk1/transfer/`
 `finetune.py`: ten named strategies (LP-FT, surgical first/last, gradual unfreezing, SWA, EMA, mixout, head-only floor) each citing its paper, all wrapping the existing `finetune_tnk1`.
@@ -76,7 +133,41 @@ And the two fixes for the actual failures, in `algos/common.py`:
 
 ## 3. What to run, in order
 
-### Step 1 — `taskselect`. CPU, seconds. Do this first.
+### Step 0 — calibrate the audit gate. CPU, minutes. **Do this before anything else.**
+```bash
+# needs runs/stage4_oof_predictions.csv (ensemble) + a GP's OOF predictions on the same rows
+python -c "
+from tnk1.rl import audit as A
+null = A.calibrate_null(mu_ens_heldout, mu_gp_heldout, mu_ens_prior, mu_gp_prior)
+print(A.assess_gate(null, observed_disagreement, current_tol=1.0))"
+```
+
+**This may overturn the v3 run's headline conclusion, and it costs half a day.**
+
+The report reads the Stage-8 gate's 100% rejection — `|μ_ens − μ_GP|` of 1.18–2.37 against
+a tolerance of 1.0 — as "the signature of reward hacking". That tolerance is a round number
+with no derivation anywhere in the repository.
+
+Langevin, Vuilleumier & Bianciotto (*J. Cheminform.* 14:20, 2022), responding to Renz et
+al.'s optimise-then-rescore diagnostic that this gate implements, show the apparent
+exploitation signal **"can be explained by a disagreement between predictive models on the
+original data distribution"**. Two independently trained models disagree by a *baseline*
+amount even on molecules nobody optimised against. A 10-member D-MPNN ensemble and a
+Tanimoto GP fitted on 172 measurements are very differently biased estimators, and a ~1 log
+unit disagreement on held-out chemistry would not be surprising.
+
+**If the baseline held-out disagreement is already near 1.0, the gate is mis-specified, the
+rejection rate carries far less information than claimed, and the "generator exploited the
+critic" narrative is partly an artefact of an uncalibrated threshold.**
+
+`tnk1/rl/audit.py` measures it: `calibrate_null` on (i) held-out measured compounds and
+(ii) unoptimised prior samples, then `assess_gate`, which returns two separate verdicts —
+whether the *threshold* is defensible, and whether the generated set is actually anomalous
+against the null. Replace the round number with `recommended_threshold` (the 0.95 quantile
+of the held-out null) before drawing any conclusion from the gate, and before tuning
+`pessimistic_reward`'s κ, which is parameterised by the same quantity.
+
+### Step 1 — `taskselect`. CPU, seconds.
 ```bash
 python scripts/run_stage3b_transfer.py --version v3 --task-selection-only
 ```
@@ -111,11 +202,20 @@ This is the only change in Cycle 03 that can alter a scientific outcome. A re-ru
 
 **Four things read the ensemble's σ** — `r_pot`'s penalty, the conformal `q̂`, the applicability domain, and EI/UCB acquisition. Swapping the critic means re-deriving all four, not just the point predictions. `calibrate` must re-run.
 
-### Step 5 — the RL algorithm array. 6 × ~2.8 h GPU, 2 concurrent.
+### Step 5 — the RL algorithm array. 8 × ~2.8 h GPU, 2 concurrent.
 ```bash
-sbatch --array=0-5%2 hpc/submit_array.sh rlalgo
+sbatch --array=0-7%2 hpc/submit_array.sh rlalgo    # dap augmem ahc drgrpo rloo ppo grpo gflownet
 python scripts/compare_sweeps.py
 ```
+Submit `0-3` first if the budget is tight — that is the incumbent plus the three with the
+strongest case.
+
+**The run shape is probably wrong, independently of the algorithm.** Thomas, Bou & De
+Fabritiis (arXiv:2501.19153) report that chemical-exploration performance **scales
+log-linearly with the number of independent RL agents**, while longer test-time training
+per agent gives diminishing returns even with exploration bonuses. The v3 run was one
+agent for 1000 steps at batch 128. Several shorter independent agents would likely beat it
+for the same GPU budget. *(Preprint, not peer-reviewed at the time of the review.)*
 **Do not rank these runs on `score_mean`.** The v3 agent reached 7.3× the prior's reward and produced zero candidates. Rank on `cycle_candidates` — the audit-gate survivors — once Stage 8 has run against each agent.
 
 ### Step 6 — the transfer ladder. Comparable in cost to `ablate`.
@@ -185,7 +285,7 @@ New, from this cycle:
 
 ## 6. Honest statement of what is and is not verified
 
-**Verified here:** every module imports and runs; 364 hermetic tests pass, including randomised-trial assertions on the discrete-super-learner guard and a worked demonstration that Mondrian conformal fixes a conditional-coverage failure split conformal hides. The orchestrator builds its plan with all four new stages. All shell scripts parse. Both trees are byte-identical.
+**Verified here:** every module imports and runs; 383 hermetic tests pass, including randomised-trial assertions on the discrete-super-learner guard and a worked demonstration that Mondrian conformal fixes a conditional-coverage failure split conformal hides. The orchestrator builds its plan with all four new stages. All shell scripts parse. Both trees are byte-identical.
 
 **Not verified:** nothing has been run on the real 172-molecule table or on a GPU. In particular —
 

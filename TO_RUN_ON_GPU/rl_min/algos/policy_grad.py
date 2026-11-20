@@ -78,14 +78,15 @@ def train_policy_gradient(prior, agent, vocab, scorer, cfg, device="cpu", log_ev
     """
     from ..dap import ReplayMemory, ScaffoldFilter
 
-    defaults = {"ppo": ("mean", 4), "grpo": ("grpo", 1), "rloo": ("rloo", 1)}
+    defaults = {"ppo": ("mean", 4), "grpo": ("grpo", 1), "drgrpo": ("mean", 1),
+                "rloo": ("rloo", 1)}
     adv_mode, def_epochs = defaults.get(algo, ("grpo", 1))
     adv_mode = getattr(cfg, "pg_advantage", None) or adv_mode
     clip = float(getattr(cfg, "pg_clip", 0.2))
     epochs = int(getattr(cfg, "pg_epochs", def_epochs))
     kl_coef = float(getattr(cfg, "kl_coef", 0.02))
     kl_target = getattr(cfg, "kl_target", None)
-    use_clip = algo in ("ppo", "grpo")
+    use_clip = algo in ("ppo", "grpo", "drgrpo")
 
     rng = np.random.RandomState(cfg.seed)
     torch.manual_seed(cfg.seed)
@@ -192,6 +193,23 @@ def train_ppo(prior, agent, vocab, scorer, cfg, device="cpu", log_every=1, logge
 def train_grpo(prior, agent, vocab, scorer, cfg, device="cpu", log_every=1, logger=None):
     return train_policy_gradient(prior, agent, vocab, scorer, cfg, device, log_every,
                                  logger, algo="grpo")
+
+
+def train_drgrpo(prior, agent, vocab, scorer, cfg, device="cpu", log_every=1, logger=None):
+    """Dr. GRPO: GRPO with the group-std division and length normalisation removed.
+
+    Liu, Chen, Li, Qi, Pang, Du, Lee & Lin, "Understanding R1-Zero-Like Training: A
+    Critical Perspective" (arXiv:2503.20783). The advantage is simply `A_i = R_i - mean(R)`.
+
+    THE VARIANT TO USE ON THIS PROJECT, for a concrete reason. GRPO's
+    `A_i = (R_i - mean(R)) / std(R)` divides by the within-batch spread, and a reward
+    component pinned at its floor has almost no spread -- r_sel sat at 0.091-0.144 for all
+    1000 steps of the v3 run. Dividing by a near-zero std inflates floating-point noise
+    into large advantages and the policy chases it. Removing the division removes that
+    failure mode at no cost: the mean baseline still reduces variance.
+    """
+    return train_policy_gradient(prior, agent, vocab, scorer, cfg, device, log_every,
+                                 logger, algo="drgrpo")
 
 
 def train_rloo(prior, agent, vocab, scorer, cfg, device="cpu", log_every=1, logger=None):

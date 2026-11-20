@@ -20,11 +20,19 @@ import numpy as np
 
 
 def standardize(r, eps=1e-8):
-    """(r - mean) / std. The group-relative advantage of GRPO (Shao et al. 2024).
+    """(r - mean) / std. The group-relative advantage of GRPO (Shao et al. 2024, eq. 3).
 
-    Returns zeros for a degenerate batch rather than dividing by ~0 and producing a
-    gradient of magnitude 1e8. A constant-reward batch genuinely carries no learning
-    signal; manufacturing one from floating-point noise is how a run diverges at step 1.
+    PREFER `center` (the Dr. GRPO form) FOR THIS PROJECT. The division by the group
+    standard deviation is actively harmful when a reward component is pinned at its floor,
+    which is exactly the v3 run's situation: r_sel sat at 0.091-0.144 for 1000 steps. A
+    floored component has near-zero within-batch variance, so dividing by `std` inflates
+    what is left -- floating-point noise -- into large advantages, and the policy chases
+    it. Liu, Chen, Li, Qi, Pang, Du, Lee & Lin, "Understanding R1-Zero-Like Training: A
+    Critical Perspective" (arXiv:2503.20783), remove both the std division and the length
+    normalisation; the molecular GRPO implementations follow them.
+
+    Kept because it is the published GRPO objective and the comparison is worth running.
+    Returns zeros for a degenerate batch rather than dividing by ~0.
     """
     r = np.asarray(r, float)
     sd = r.std()
@@ -34,11 +42,21 @@ def standardize(r, eps=1e-8):
 
 
 def center(r):
-    """r - mean(r): a baseline that reduces variance without rescaling the gradient.
+    """r - mean(r). The Dr. GRPO advantage, and the recommended default here.
+
+    Liu et al. (arXiv:2503.20783) remove GRPO's division by the group standard deviation
+    and its trajectory-length normalisation, leaving
+
+        A_i = R_i - mean(R)
+
+    which is what the molecular GRPO implementations use (no std division, no length
+    normalisation, and no PPO clipping when a single gradient step is taken per batch).
+    See `standardize` for why the std division specifically misfires on a floored reward
+    component -- the exact situation r_sel was in for 1000 steps.
 
     The leave-one-out form below is unbiased; this one is not, strictly, because r_i
-    appears in its own baseline. At batch 128 the bias is O(1/n) and it is what REINFORCE
-    with a mean baseline does in practice.
+    appears in its own baseline. At batch 128 that bias is O(1/n), and it is what
+    REINFORCE with a mean baseline does in practice.
     """
     r = np.asarray(r, float)
     return r - r.mean()
@@ -200,6 +218,80 @@ def disagreement_penalty(mu_a, mu_b, tol=1.0, scale=1.0, mode="hinge"):
     if mode == "hinge":
         return scale * np.maximum(d - tol, 0.0)
     raise ValueError(f"unknown disagreement mode {mode!r}")
+
+
+def weighted_geometric_mean(components, weights, floor=1e-8):
+    """prod_i s_i^(w_i / sum w). The aggregator fix for a floored reward component.
+
+    THE ARGUMENT, WHICH IS ABOUT GRADIENTS RATHER THAN TASTE.
+
+    Under a weighted ARITHMETIC mean the partial derivative with respect to each component
+    is a constant:
+
+        S  = sum_i w_i_hat * s_i          =>   dS/ds_i = w_i_hat
+
+    so moving selectivity from 0.09 to 0.19 is worth exactly as much as moving safety from
+    0.89 to 0.99, and the optimiser rationally spends its capacity where improvement is
+    cheap. That is the v3 run in one line: every component driven near its ceiling except
+    the one that was hard to move, which stayed at 0.091-0.144 for 1000 steps.
+
+    Under a weighted GEOMETRIC mean it is the ELASTICITY that is constant:
+
+        S  = prod_i s_i^w_i_hat           =>   dlnS/dlns_i = w_i_hat
+
+    so FRACTIONAL improvement is what pays. Doubling 0.09 -> 0.18 multiplies the total by
+    2^w_hat, while 0.89 -> 0.98 multiplies it by 1.10^w_hat. At a 0.2 weight share that is
+    1.15 against 1.02 -- roughly a 7x larger reward gradient on the floored component, for
+    no change but the aggregator. (REINVENT 4 exposes both natively as `geometric_mean`
+    / `custom_product` and `arithmetic_mean` / `custom_sum`.)
+
+    `floor` clamps each component before exponentiating, matching REINVENT's own 1e-8. BE
+    AWARE WHAT THAT MEANS: a zero component contributes floor^w_hat, which at a 0.2 weight
+    share is about 0.025 -- a severe penalty, not a veto. For a true veto multiply by a
+    0/1 term (`tnk1.uq.applicability.BoundingBoxAD.reward_term`) or use
+    `multiplicative_gate` below.
+    """
+    keys = [k for k in components if k in weights]
+    if not keys:
+        raise ValueError("no component has a weight")
+    w = np.array([float(weights[k]) for k in keys])
+    if w.sum() <= 0:
+        raise ValueError("component weights sum to zero")
+    w = w / w.sum()
+    out = None
+    for k, wi in zip(keys, w):
+        v = np.clip(np.asarray(components[k], float), floor, None)
+        term = v ** wi
+        out = term if out is None else out * term
+    return out
+
+
+def aggregate_gradient_share(components, weights, floor=1e-8) -> dict:
+    """Per-component share of the reward gradient, under both aggregators.
+
+    A diagnostic, not a reward. Run it on a scored batch BEFORE a long RL run and read the
+    `arithmetic` column: a component whose share is tiny is one the optimiser will abandon,
+    and the v3 run would have shown exactly that for `sel` at step 1 rather than after 165
+    GPU-minutes.
+    """
+    keys = [k for k in components if k in weights]
+    w = np.array([float(weights[k]) for k in keys])
+    w = w / max(w.sum(), 1e-12)
+    vals = {k: np.clip(np.asarray(components[k], float), floor, None) for k in keys}
+    geo = weighted_geometric_mean(components, weights, floor)
+    out = {}
+    for k, wi in zip(keys, w):
+        v = vals[k]
+        # arithmetic: dS/ds_i = w_i, so the share of a 1-unit move is just w_i
+        # geometric:  dS/ds_i = w_i * S / s_i, which is larger where s_i is small
+        out[k] = {
+            "weight_share": float(wi),
+            "mean_value": float(v.mean()),
+            "arith_dS_ds": float(wi),
+            "geom_dS_ds": float(np.mean(wi * geo / v)),
+            "geom_over_arith": float(np.mean(geo / v)),
+        }
+    return out
 
 
 def multiplicative_gate(components, floors):

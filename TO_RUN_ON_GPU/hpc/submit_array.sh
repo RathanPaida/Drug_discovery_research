@@ -7,7 +7,7 @@
 # dependencies between them -- so the right tool is an array with a concurrency limit,
 # which Slurm enforces itself via the `%` suffix on --array.
 #
-#   sbatch --array=0-5%2 hpc/submit_array.sh rlalgo        # 6 algorithms, 2 at a time
+#   sbatch --array=0-7%2 hpc/submit_array.sh rlalgo        # 8 algorithms, 2 at a time
 #   sbatch --array=0-3%4 hpc/submit_array.sh zoo           # 4 model shortlists, CPU
 #
 # $1 selects the sweep; $SLURM_ARRAY_TASK_ID selects the item within it. The item lists
@@ -43,7 +43,12 @@ VERSION="${TNK1_VERSION:-v3}"
 # Ordered cheapest-insight-first: `ahc` is the one with a published sample-efficiency
 # claim, `grpo` and `rloo` are critic-free and so cost no extra model, `gflownet` is the
 # one that samples proportional to reward rather than seeking the mode.
-RL_ALGOS=(dap ahc grpo rloo ppo gflownet)
+# Ordered by expected value, not alphabetically. `augmem` first after the incumbent
+# because it has the largest measured margin on the practical molecular optimisation
+# benchmark (summed AUC Top-10 15.002 vs REINVENT's 14.016, 19 of 23 tasks); `gflownet`
+# last because it ranks 17th of 25 there despite being the right SHAPE of answer to mode
+# collapse. Submit 0-3 first if the budget is tight.
+RL_ALGOS=(dap augmem ahc drgrpo rloo ppo grpo gflownet)
 
 # MODEL-ZOO SHORTLISTS, by tag. `core` is the literature-backed set to run every time.
 ZOO_TAGS=(core probe slow control)
