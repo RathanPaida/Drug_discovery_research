@@ -9,7 +9,7 @@
 #
 # Builds the python env first if it is missing (needs internet; this node has it).
 # Watch:  squeue -u $USER ;  tail -f logs/${TNK1_JOB_PREFIX}_*.out
-# Status: python scripts/run_pipeline.py --version v3 --plan
+# Status: python scripts/run_pipeline.py --version ${TNK1_VERSION:-v3} --plan
 #
 # smoke writes to runs_smoke/ and processed_smoke/ so it cannot touch real artifacts.
 
@@ -91,7 +91,7 @@ activate_env
 if ! tnk1_data_ready; then
     echo "ERROR: the feature store does not verify against data/features/manifest.json." >&2
     echo "  Re-upload data/features/ -- a truncated transfer is the usual cause." >&2
-    echo "  Detail:  python scripts/run_stage0_check.py --version v3 --strict" >&2
+    echo "  Detail:  python scripts/run_stage0_check.py --version ${TNK1_VERSION:-v3} --strict" >&2
     exit 1
 fi
 
@@ -243,6 +243,6 @@ else
     echo "Queued. Watch:"
     echo "  squeue -u \$USER -o '%.8i %.16j %.2t %.11M %.6D %R'"
     echo "  tail -f logs/${TNK1_JOB_PREFIX}_*.out"
-    echo "Status:  python scripts/run_pipeline.py --version v3 --plan"
+    echo "Status:  python scripts/run_pipeline.py --version ${TNK1_VERSION:-v3} --plan"
     echo "Cancel:  scancel -u \$USER"
 fi

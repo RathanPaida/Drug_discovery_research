@@ -33,8 +33,17 @@ activate_env
 
 STAGE="${1:?usage: sbatch hpc/submit_cpu.sh <stage>   (preflight|baselines|zoo|stack|critic|report)}"; shift || true
 
-echo "[dug] node=$(hostname) stage=$STAGE config=$TNK1_CONFIG cpus=${SLURM_CPUS_PER_TASK:-?}"
-python scripts/run_pipeline.py --version v3 --device cpu --only "$STAGE" "$@"
+# The dataset version was hardcoded `v3` here while submit_array.sh and run_sweeps.sh
+# already read $TNK1_VERSION. That split mattered the moment Stage 1 produced a second
+# frozen table: harvesting more measurements writes kinome_long_v4.parquet, but every
+# stage submitted through this script would still have asked for v3 -- and v3 still
+# exists, so verify_locked passes, nothing errors, and the job trains on the OLD
+# 172-molecule table. A silently stale run is the one failure mode worse than a crash,
+# because the results look like results.
+VERSION="${TNK1_VERSION:-v3}"
+
+echo "[dug] node=$(hostname) stage=$STAGE version=$VERSION config=$TNK1_CONFIG cpus=${SLURM_CPUS_PER_TASK:-?}"
+python scripts/run_pipeline.py --version "$VERSION" --device cpu --only "$STAGE" "$@"
 rc=$?
 echo
 echo "---- stage '$STAGE' exited $rc ----"

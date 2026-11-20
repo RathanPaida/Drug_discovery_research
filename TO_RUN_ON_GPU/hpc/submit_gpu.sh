@@ -47,13 +47,17 @@ STAGE="${1:?usage: sbatch hpc/submit_gpu.sh <stage>   (ens|oof|calibrate|compare
 # or, for the whole 6-algorithm sweep at once, use the array:
 #   sbatch --array=0-5%2 hpc/submit_array.sh rlalgo
 
-echo "[dug] node=$(hostname) stage=$STAGE config=$TNK1_CONFIG"
+# See the note in submit_cpu.sh: this was hardcoded `v3`, so a run against a newly
+# frozen kinome_long_v4.parquet would have silently used the old table instead.
+VERSION="${TNK1_VERSION:-v3}"
+
+echo "[dug] node=$(hostname) stage=$STAGE version=$VERSION config=$TNK1_CONFIG"
 echo "[dug] shards=${SLURM_JOB_GRES:-?} cpus=${SLURM_CPUS_PER_TASK:-?} mem=${SLURM_MEM_PER_NODE:-?}MB"
 nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv,noheader || true
 python -c "import torch; assert torch.cuda.is_available(), 'no GPU visible in this job'; \
 print('[tnk1] torch', torch.__version__, '| gpu', torch.cuda.get_device_name(0))"
 
-python scripts/run_pipeline.py --version v3 --device cuda --only "$STAGE" "$@"
+python scripts/run_pipeline.py --version "$VERSION" --device cuda --only "$STAGE" "$@"
 rc=$?
 
 echo

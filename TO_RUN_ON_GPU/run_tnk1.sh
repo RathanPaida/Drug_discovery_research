@@ -58,7 +58,7 @@ case "$MODE" in
         ;;
     plan)
         activate_env
-        python scripts/run_pipeline.py --version v3 --plan
+        python scripts/run_pipeline.py --version "${TNK1_VERSION:-v3}" --plan
         exit 0
         ;;
     smoke|full|baseline)
@@ -112,7 +112,12 @@ if [ -n "$FROM" ]; then
     EXTRA_ARGS+=(--from "$FROM")
 fi
 
-python scripts/run_pipeline.py --version v3 --device cuda "${EXTRA_ARGS[@]}"
+# Dataset version. Was hardcoded `v3`: after Stage 1 freezes a larger kinome_long_v4,
+# this script would still have run every stage against the old table, without erroring,
+# because v3 remains on disk and its sha256 still verifies. Export TNK1_VERSION=v4.
+VERSION="${TNK1_VERSION:-v3}"
+echo " Dataset  : $VERSION"
+python scripts/run_pipeline.py --version "$VERSION" --device cuda "${EXTRA_ARGS[@]}"
 
 echo "=============================================================="
 echo " Pipeline execution completed successfully!"

@@ -18,6 +18,30 @@ data:
   pkis_csv: data/raw/pkis_long.csv              # columns: smiles,uniprot_id,value_nM,standard_type
   kinomescan_csv: data/raw/kinomescan_long.csv  # Davis/Fabian/Karaman, same columns
   dkk_csv: data/raw/dkk_tnk1_curated.csv        # manual TNK1 curation (TP-0903, dasatinib, bosutinib ...)
+
+  # ---- Harvested measurements (scripts/tnk1_harvest.py) ---------------------------
+  # The harvester's merged master table. ABSENT -> silently skipped, so the pipeline
+  # behaves exactly as before until a harvest exists; present -> its rows join the ingest
+  # alongside ChEMBL/BindingDB/PKIS. Read by `tnk1.data.extract.from_harvest_csv`, which
+  # maps the harvester's column names onto Stage 1's and PRESERVES per-row `source`
+  # (`from_long_csv` would overwrite it with one literal string).
+  harvest_master_csv: data/raw/TNK1_kinase_master.csv
+  # Admit right-censored (`>`, `>=`) rows. The harvester's own is_training_ready_exact
+  # flag demands relation == "=", which discards them; the pipeline models them (each row
+  # keeps its own bound and the loss has a censored term), so they are kept by default.
+  harvest_allow_censored: true
+  # Keep only rows whose target is in the harvester's kinase panel.
+  harvest_require_panel: true
+  # Semantics whose number is not a single direct measurement of the quantity its
+  # activity_type names, and so must not be pooled with one by aggregate_replicates.
+  # See tnk1.data.extract.HARVEST_EXCLUDE_SEMANTICS for what each one is.
+  harvest_exclude_semantics: [kiba_score, gtopdb_curated_summary, activity_outcome_only]
+  # true appends the semantics tag to standard_type (e.g. `Kd@kd_nM_matrix_Davis2011`) so
+  # competition-binding Kd_app forms its own replicate group instead of pooling with
+  # solution Kd. It alters a grouping key, so tables built with and without are NOT
+  # comparable -- changing it is a new dataset version, not a tweak.
+  harvest_distinguish_semantics: false
+
   kinase_table: data/raw/kinases.csv            # uniprot_id,gene_name,domain_sequence,klifs_pocket_85
   chembl_unlabelled_smiles: data/raw/chembl_drug_like.smi
   # Ingest kinome_all_measurements_3.95M.parquet instead of kinome_multitask_300k.parquet.

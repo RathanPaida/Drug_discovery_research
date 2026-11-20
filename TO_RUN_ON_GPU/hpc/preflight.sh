@@ -19,13 +19,18 @@ source "$_here/_config.sh"
 rc=0
 step() { echo; echo "=== $* ==="; }
 
+# Preflight must check the SAME dataset version the run will use, or it green-lights v3
+# while the jobs go on to use v4 (or the reverse). See the note in submit_cpu.sh.
+VERSION="${TNK1_VERSION:-v3}"
+echo "dataset version under test: $VERSION   (override with TNK1_VERSION=v4)"
+
 step "1-4. environment, feature store, frozen table, config"
 if ! env_python_runs; then
     echo "FAIL: no working env at $ENV_DIR -- run:  bash hpc/setup_env.sh" >&2
     exit 1
 fi
 activate_env
-python scripts/run_stage0_check.py --version v3 --strict || rc=1
+python scripts/run_stage0_check.py --version "$VERSION" --strict || rc=1
 
 step "5. hermetic test suite"
 python -m pytest -q || rc=1
@@ -36,7 +41,7 @@ echo "shard GRES expected: gpu:1,shard:94   (1 shard ~ 1 GB of the H100's 94 GB)
 squeue -u "$USER" 2>&1 | head -5 || true
 
 step "7. what the pipeline would do next"
-python scripts/run_pipeline.py --version v3 --plan || rc=1
+python scripts/run_pipeline.py --version "$VERSION" --plan || rc=1
 
 echo
 if [ "$rc" = 0 ]; then

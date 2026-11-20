@@ -77,6 +77,34 @@ def main():
         if key in d and Path(d[key]).exists():
             parts.append(extract.from_long_csv(d[key], src))
 
+    # The harvester's merged master table (scripts/tnk1_harvest.py). Read through
+    # `from_harvest_csv`, NOT `from_long_csv`: the harvester names three of the five
+    # required columns differently, so from_long_csv raises KeyError on its column
+    # selection, and its `df["source"] = source` would overwrite the real per-row
+    # provenance with a single literal. Absent file -> skipped, so the ingest is
+    # unchanged until a harvest exists.
+    hv = str(d.get("harvest_master_csv", "") or "")
+    if hv and Path(hv).exists():
+        hrows, hrep = extract.from_harvest_csv(
+            hv,
+            types=tuple(d.get("standard_types", ("IC50", "Ki", "Kd"))),
+            allow_censored=bool(d.get("harvest_allow_censored", True)),
+            require_panel=bool(d.get("harvest_require_panel", True)),
+            drop_composite=bool(d.get("drop_composite_targets", True)),
+            exclude_semantics=tuple(d.get("harvest_exclude_semantics",
+                                          extract.HARVEST_EXCLUDE_SEMANTICS)),
+            distinguish_semantics=bool(d.get("harvest_distinguish_semantics", False)),
+        )
+        print(f"[stage1] harvest master: {hv}")
+        print(extract.format_harvest_report(hrep))
+        if len(hrows):
+            parts.append(hrows)
+        else:
+            print("[stage1]   nothing survived the harvest filter; no rows added")
+    elif hv:
+        print(f"[stage1] harvest master absent at {hv} -- skipped. "
+              f"Run scripts/tnk1_harvest.py to produce it.")
+
     if parts:
         raw = pd.concat(parts, ignore_index=True)
         print(f"raw records extracted from local raw databases: {len(raw):,}")

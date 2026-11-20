@@ -38,19 +38,22 @@ RDLogger.DisableLog('rdApp.*')
 
 # Paths
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# `cycle_paths` and `resolve_vina` live in tnk1.docking.paths, which imports no chemistry
+# stack, so they stay unit-testable on a machine with no rdkit/meeko -- which is exactly
+# where you want to confirm the Vina path resolves BEFORE queueing a job. Re-exported
+# here because scripts/dock_controls.py imports them from this module.
+from tnk1.docking.paths import cycle_paths, resolve_vina, VINA_NAMES  # noqa: E402,F401
+
 PIPELINE_ROOT = ROOT if (ROOT / "runs").exists() else ROOT / "tnk1-pipeline" / "tnk1-pipeline"
-CONTRACT_PATH = PIPELINE_ROOT / "runs" / "cycle_01" / "contract_novel_team_b.csv"
-DEFAULT_CONTRACT = PIPELINE_ROOT / "runs" / "cycle_01" / "contract_to_team_b.csv"
-RUNS_DIR = PIPELINE_ROOT / "runs" / "cycle_01"
-POSES_DIR = RUNS_DIR / "docking_poses"
-POSES_DIR.mkdir(parents=True, exist_ok=True)
 
 # AutoDock Vina seeds from the clock unless told otherwise, which makes the campaign
 # irreproducible -- and `hinge_contact` is a hard 3.5 A threshold, so a control can flip
 # from True to False on the RNG alone. Fixed here; override with --seed, or --seed -1 for
 # the old clock-seeded behaviour.
 DOCK_SEED = 42
-VINA_EXE = ROOT / "tools" / "vina.exe"
 RECEPTOR_PDB = (ROOT / "data" / "structures" / "tnk1_alphafold.pdb") if (ROOT / "data" / "structures" / "tnk1_alphafold.pdb").exists() else (ROOT / "data" / "tnk1_alphafold.pdb")
 RECEPTOR_PDBQT = (ROOT / "data" / "structures" / "tnk1_kinase.pdbqt") if (ROOT / "data" / "structures" / "tnk1_kinase.pdbqt").exists() else (ROOT / "data" / "tnk1_kinase.pdbqt")
 
@@ -273,9 +276,12 @@ def main(argv=None):
     # Writing over an existing campaign now requires --force, and --help is just help.
     import argparse
     ap = argparse.ArgumentParser(
-        description="Dock the 40 Cycle-01 contract compounds into the TNK1 AlphaFold2 pocket.",
+        description="Dock a cycle's contract compounds into the TNK1 AlphaFold2 pocket.",
         epilog="Overwriting an existing campaign requires --force.")
-    ap.add_argument("--cycle", type=int, default=1)
+    ap.add_argument("--cycle", type=int, default=1,
+                    help="cycle whose contract to dock; selects runs/cycle_NN/ (default 1)")
+    ap.add_argument("--vina", default=None,
+                    help="path to the AutoDock Vina executable; else $TNK1_VINA, PATH, tools/")
     ap.add_argument("--cpu", type=int, default=4, help="Vina CPU threads per job")
     ap.add_argument("--seed", type=int, default=DOCK_SEED,
                     help=f"Vina RNG seed (default {DOCK_SEED}); -1 seeds from the clock "
@@ -286,14 +292,35 @@ def main(argv=None):
     a = ap.parse_args(argv)
     seed = None if a.seed is not None and int(a.seed) < 0 else a.seed
 
-    existing = sorted(POSES_DIR.glob("*_docked.pdbqt")) if POSES_DIR.exists() else []
+    # Per-cycle paths, and the Vina binary. Both were module-level constants: the paths
+    # pinned to cycle_01 regardless of --cycle, and Vina pinned to a Windows .exe in a
+    # directory the repository does not contain. See cycle_paths() and resolve_vina().
+    P = cycle_paths(a.cycle)
+    contract_path = P["contract"] if P["contract"].exists() else P["contract_fallback"]
+    poses_dir = P["poses"]
+
+    if not contract_path.exists():
+        print(f"No contract table for cycle {a.cycle:02d}. Looked for:")
+        print(f"  {P['contract']}")
+        print(f"  {P['contract_fallback']}")
+        print(f"Run the pipeline's `cycle` stage first:")
+        print(f"  python scripts/run_stage8_cycle.py prepare --cycle {a.cycle}")
+        return 1
+
+    existing = sorted(poses_dir.glob("*_docked.pdbqt")) if poses_dir.exists() else []
     if existing and not a.force:
         print(f"Refusing to run: {len(existing)} docked pose(s) already exist in")
-        print(f"  {POSES_DIR}")
-        print("These are published Cycle-01 artifacts referenced by README.md and the")
+        print(f"  {poses_dir}")
+        print("For cycle 01 these are published artifacts referenced by README.md and the")
         print("master document. Re-docking replaces them, and Vina results shift slightly")
         print("between runs. Pass --force if that is what you intend.")
         return 1
+
+    vina_exe = resolve_vina(a.vina)
+    poses_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Cycle        : {a.cycle:02d}")
+    print(f"Contract     : {contract_path}")
+    print(f"Vina binary  : {vina_exe}")
 
     print("=" * 80, flush=True)
     print("TNK1 CLOSED-LOOP AI DISCOVERY: MOLECULAR DOCKING AUDIT (40 CANDIDATES)", flush=True)
@@ -308,8 +335,8 @@ def main(argv=None):
         print(f"Receptor PDBQT ready at: {RECEPTOR_PDBQT}", flush=True)
 
     # 2. Load contract candidates
-    print(f"\nLoading contract candidates from: {CONTRACT_PATH}", flush=True)
-    contract_df = pd.read_csv(CONTRACT_PATH)
+    print(f"\nLoading contract candidates from: {contract_path}", flush=True)
+    contract_df = pd.read_csv(contract_path)
     n_total = len(contract_df)
     print(f"Loaded {n_total} candidate molecules for docking evaluation.", flush=True)
 
@@ -329,7 +356,7 @@ def main(argv=None):
             smi = row["canonical_smiles"]
             fut = executor.submit(
                 run_docking_single,
-                cid, bslice, smi, RECEPTOR_PDBQT, VINA_EXE, POSES_DIR, cpu_per_job
+                cid, bslice, smi, RECEPTOR_PDBQT, vina_exe, poses_dir, cpu_per_job
             )
             futures[fut] = (cid, bslice)
 
@@ -373,7 +400,7 @@ def main(argv=None):
               f"Peak = {grp['docking_affinity_kcal_mol'].min():.2f} kcal/mol | Hinge Contact: {grp['hinge_contact'].sum()}/{len(grp)}", flush=True)
 
     # 5. Merge with Contract Table
-    out_csv = RUNS_DIR / "docking_results_40_compounds.csv"
+    out_csv = P["results"]
     results_df.to_csv(out_csv, index=False)
     print(f"\nDetailed docking results saved to:\n  {out_csv}", flush=True)
 
@@ -386,8 +413,9 @@ def main(argv=None):
     contract_df["docking_pki_est"] = contract_df["compound_id"].map(pki_map)
     contract_df["docking_hinge_contact"] = contract_df["compound_id"].map(hinge_map)
 
-    contract_df.to_csv(CONTRACT_PATH, index=False)
-    contract_df.to_csv(DEFAULT_CONTRACT, index=False)
+    contract_df.to_csv(contract_path, index=False)
+    if P["contract_fallback"].exists() or contract_path == P["contract"]:
+        contract_df.to_csv(P["contract_fallback"], index=False)
     print("Synchronized and updated contract files with docking scores.", flush=True)
 
     # Save summary JSON
@@ -404,7 +432,7 @@ def main(argv=None):
         "hinge_contact_rate": f"{n_hinge}/{n_total} ({n_hinge/n_total*100:.1f}%)",
         "runtime_seconds": round(time.time()-t_start, 1)
     }
-    summary_path = RUNS_DIR / "docking_summary.json"
+    summary_path = P["summary"]
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"Docking summary JSON saved to:\n  {summary_path}", flush=True)

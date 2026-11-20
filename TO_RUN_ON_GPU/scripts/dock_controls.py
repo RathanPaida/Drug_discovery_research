@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.dock_40_molecules_tnk1 import run_docking_single  # noqa: E402
+from scripts.dock_40_molecules_tnk1 import resolve_vina, run_docking_single  # noqa: E402
 
 # name, batch_slice, SMILES. All three are approved or clinical-stage kinase inhibitors
 # with published TNK1/ACK-family activity, used as the benchmark for the campaign.
@@ -45,7 +45,8 @@ def main(argv=None) -> int:
     ap.add_argument("--cpu", type=int, default=4, help="Vina CPU threads per job")
     ap.add_argument("--receptor", default=None,
                     help="default: data/structures/tnk1_kinase.pdbqt")
-    ap.add_argument("--vina", default=None, help="default: tools/vina.exe")
+    ap.add_argument("--vina", default=None,
+                    help="path to the Vina executable; else $TNK1_VINA, PATH, tools/")
     ap.add_argument("--out", default=None, help="default: runs/cycle_<cycle>/")
     ap.add_argument("--seed", type=int, default=None,
                     help="Vina RNG seed; default is dock_40_molecules_tnk1.DOCK_SEED. "
@@ -55,19 +56,18 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     receptor = Path(a.receptor) if a.receptor else ROOT / "data" / "structures" / "tnk1_kinase.pdbqt"
-    vina = Path(a.vina) if a.vina else ROOT / "tools" / "vina.exe"
     runs_base = Path(a.out) if a.out else ROOT / "runs" / f"cycle_{a.cycle:02d}"
 
     # Fail closed, naming every missing input, instead of letting Vina fail opaquely.
-    missing = [str(p) for p in (receptor, vina) if not p.exists()]
-    if missing:
-        print("Cannot dock; missing input(s):", file=sys.stderr)
-        for m in missing:
-            print(f"  {m}", file=sys.stderr)
-        print("\nThe receptor is produced by the Stage-8 docking prep; AutoDock Vina is an\n"
-              "external binary (not a wheel) and `tools/` is gitignored -- install Vina\n"
-              "1.2.7 and pass --vina, or place it at tools/vina.exe.", file=sys.stderr)
+    # The binary itself goes through the shared resolver (--vina / $TNK1_VINA / PATH /
+    # tools/) so this script and dock_40_molecules_tnk1.py cannot disagree about where
+    # Vina lives -- and so neither of them assumes a Windows .exe on a Linux HPC.
+    if not receptor.exists():
+        print("Cannot dock; missing input:", file=sys.stderr)
+        print(f"  {receptor}", file=sys.stderr)
+        print("\nThe receptor is produced by the Stage-8 docking prep.", file=sys.stderr)
         return 1
+    vina = resolve_vina(a.vina)
 
     # Published Cycle-01 numbers (-9.40 / -8.37 / -8.26 kcal/mol) are quoted in README.md
     # and the master document. Re-running shifts them, because Vina's search is stochastic.

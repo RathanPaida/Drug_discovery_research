@@ -96,13 +96,58 @@ The 40-compound Cycle-01 contract (`runs/cycle_01/contract_novel_team_b.csv`) is
 
 ---
 
-## 5. A gap in Stage 1 worth fixing while you are in here
+## 5. The gap that stopped the harvest reaching the pipeline — now closed
 
-`audit_data_gaps.py` reports it: **the frozen table carries no per-row source column.** So the audit cannot say which harvest source each TNK1 row came from — which is the single most useful thing to know before choosing a new source, because a source that duplicates what ChEMBL already gave you buys little and one covering chemistry nothing else does buys a lot.
+**The harvester's output could not be ingested at all.** Stage 1's long-CSV reader,
+`tnk1.data.extract.from_long_csv`, ends with a hard column selection:
 
-The harvester's master table *has* a source column. Stage 1 drops it. Carrying `source` through `scripts/run_stage1_data.py` into `kinome_long_<version>.parquet` is a small change with a large planning payoff, and it would also let the per-source noise floor be estimated from the compounds measured more than once.
+```python
+return df[["smiles", "uniprot_id", "standard_type", "relation", "value_nM", "source"]]
+```
 
-I have **not** made this change: it alters the frozen table's schema, which would invalidate the locked `.sha256` sidecar and every provenance fingerprint downstream. That is a decision about the data contract, not a cleanup.
+The harvester names three of those five differently — `std_smiles`, `uniprot_accession`,
+`activity_type` — so handing it a master table raised `KeyError`. And the obvious
+workaround, pointing one of the existing `pkis_csv` / `kinomescan_csv` / `dkk_csv` keys at
+the harvest file, would have been worse than the error: `from_long_csv` does
+`df["source"] = source`, overwriting every row's real provenance with one literal string.
+
+So a harvest could either fail loudly or succeed while discarding the provenance the
+harvester exists to produce. Both are fixed by `tnk1.data.extract.from_harvest_csv`:
+
+- maps the harvester's column names onto Stage 1's, with a `std_smiles` →
+  `smiles_used` → `smiles_raw` fallback;
+- **preserves per-row `source`**;
+- filters on the harvester's own criteria (`record_class == quantitative`, an allowed
+  `activity_type`, `value_nM > 0`, a usable structure, `in_panel`, no contamination flag)
+  but, unlike `is_training_ready_exact`, **keeps right-censored rows**, which the pipeline
+  models and which `is_training_ready_exact` discards by demanding `relation == "="`;
+- excludes semantics that are not a single direct measurement — KIBA scores (a
+  model-integrated fusion, not a concentration), GtoPdb summary affinities (already a
+  median over experiments, so aggregating them again understates `sigma_rep`), and
+  outcome-only rows;
+- attributes every dropped row to exactly one counted reason, so
+  `sum(dropped) + kept == read` and the Stage 1 log says precisely what was excluded.
+
+Reached from `configs/default.yaml: data.harvest_master_csv`. **Absent file → skipped**,
+so the ingest is byte-identical to before until a harvest exists.
+
+### The side effect: `source` now reaches the frozen table
+
+§5 previously noted that the frozen table carries no per-row `source`, so the audit could
+not say which source each TNK1 row came from. The reason was the branch Stage 1 took: with
+no local raw dumps the `parts` list is empty and it falls through to the curated
+feature-store path, which has no `source`. The `parts` path does
+`aggregate_replicates`, which emits `source` as a `|`-joined set of contributors.
+
+Once a harvest master exists, `parts` is non-empty, so Stage 1 takes that branch and
+`kinome_long_v4.parquet` **gains a `source` column**. That resolves the gap in the only
+safe way: as a new dataset version, not as a schema mutation of the frozen `v3` that
+published results were computed against.
+
+Still open, deliberately: a compound measured by two sources collapses to
+`"chembl|bindingdb"` rather than keeping both rows, so a per-source noise floor still
+cannot be estimated from the frozen table. That needs a replicate-level table, which is a
+data-contract decision rather than a cleanup.
 
 ---
 
@@ -121,6 +166,54 @@ I have **not** made this change: it alters the frozen table's schema, which woul
 
 Steps 1–2 are free and tell you whether 3–5 are worth the time. Do not skip them.
 
+### The exact commands, end to end
+
+The dataset version is the thing to get right. **Use a new version; do not use `--force`.**
+`--force` deletes the frozen table every published v3 number was computed from, which
+destroys the baseline you need in order to show that the extra data helped.
+
+```bash
+# 1. harvest  (writes <out>/TNK1_kinase_master.csv)
+python scripts/tnk1_harvest.py --check                 # which endpoints your network reaches
+python scripts/tnk1_harvest.py --out data/raw/tnk1_data
+
+# 2. point Stage 1 at it (configs/default.yaml: data.harvest_master_csv),
+#    or just copy it to the configured default path
+cp data/raw/tnk1_data/TNK1_kinase_master.csv data/raw/TNK1_kinase_master.csv
+
+# 3. see what it would contribute, offline, before freezing anything
+python scripts/audit_data_gaps.py --version v3 --harvest data/raw/tnk1_data
+
+# 4. freeze a NEW version. v3 stays on disk as the comparison baseline.
+python scripts/run_stage1_data.py --version v4
+
+# 5. run everything against v4. TNK1_VERSION drives every HPC script.
+export TNK1_VERSION=v4
+bash hpc/preflight.sh                                  # checks v4, not v3
+bash hpc/run_pipeline.sh full
+bash hpc/run_sweeps.sh all                             # zoo -> stack -> 8 RL objectives
+
+# 6. docking is a SEPARATE step, and needs a Vina binary (not in this repo)
+conda install -c conda-forge vina                      # or set TNK1_VINA=/path/to/vina
+python scripts/dock_controls.py --cycle 3
+python scripts/dock_40_molecules_tnk1.py --cycle 3
+```
+
+Step 4 prints the harvest filter report — read it. It is the only place that tells you how
+many of the harvested rows actually became training data, and why the rest did not.
+
+Two things this sequence depends on, both of which were broken and are now fixed:
+
+- **`TNK1_VERSION` is honoured by every HPC script.** `submit_cpu.sh`, `submit_gpu.sh`,
+  `preflight.sh` and `run_tnk1.sh` hardcoded `--version v3`, while `submit_array.sh` and
+  `run_sweeps.sh` already read the variable. With a `v4` table on disk the hardcoded
+  scripts would have run every stage against **v3** — no error, because v3 still exists
+  and its `sha256` still verifies, so the jobs would have completed and the results would
+  silently have been the old 172-molecule ones.
+- **`--cycle` actually selects a cycle in the docking scripts.** It was parsed and
+  ignored: every path was a constant pinned to `cycle_01`, so `--cycle 3` re-docked
+  Cycle-01's molecules and overwrote its published poses.
+
 ---
 
 ## 7. What is honestly unverified in this plan
@@ -130,3 +223,6 @@ Steps 1–2 are free and tell you whether 3–5 are worth the time. Do not skip 
 - **No table has been confirmed to contain TNK1.** The row-count expectations are from paper descriptions.
 - **The DTC and KIBA repairs are hypotheses about why they failed** — plausible ones (dead URL; GitHub branch rename), but the 2026-10-26 run recorded only "failed", so the actual cause was not captured. If the repairs do not work, the new error messages at least name the files and paths, which the old ones did not.
 - **`resolve_names_to_smiles` has never resolved a name.** It is wired in and compiles; its first real use will be its first test.
+- **The harvest bridge has never seen a real master table.** `from_harvest_csv` is covered by 34 unit tests against a synthetic table built to exercise every filter branch, and the full suite is 465 passed / 13 skipped. But a synthetic fixture is written by the same person who wrote the filter: the column names and semantics strings come from reading `tnk1_harvest.py`, not from a file it produced. The first real harvest is the first genuine test, and the thing to read is the filter report Stage 1 prints — specifically whether `kept` is a plausible fraction of `read`, and whether any single exclusion reason dominates unexpectedly.
+- **Nothing here has run on a GPU, and this machine has no rdkit or torch**, so every claim above is from static reading and the dependency-free tests. The pipeline stages themselves remain unexecuted since the v3 run.
+- **Docking needs a Vina binary that is not in this repository.** `tools/` is gitignored and the old hardcoded path was a Windows `.exe`, so docking could never have run on a Linux HPC. `resolve_vina` now searches `--vina`, `$TNK1_VINA`, `PATH` and `tools/`, and fails with an install command instead of a `FileNotFoundError` from inside a worker thread — but the binary still has to be installed.
