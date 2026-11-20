@@ -1,0 +1,49 @@
+{
+  "scorer": "pipeline",
+  "seed": 42,
+  "device": "cuda",
+  "config": "/home/user3/TO_RUN_ON_GPU/configs/hpc.yaml",
+  "prior": "/home/user3/TO_RUN_ON_GPU/data/processed/rl_min/prior.pt",
+  "vocab": "/home/user3/TO_RUN_ON_GPU/data/processed/rl_min/vocab.txt",
+  "components": [
+    "pot",
+    "sel",
+    "hinge",
+    "ad",
+    "sa",
+    "safety"
+  ],
+  "weights": {
+    "pot": 3.0,
+    "sel": 2.5,
+    "hinge": 2.0,
+    "ad": 1.0,
+    "sa": 1.5,
+    "safety": 2.5
+  },
+  "calibration": {
+    "pot_c": 6.165188980102539,
+    "sel_c": -0.45525398254394533,
+    "n": 9638,
+    "target_frac": 0.3
+  },
+  "dap_config": {
+    "steps": 1000,
+    "batch_size": 128,
+    "sigma": 120.0,
+    "lr": 0.0001,
+    "max_len": 128,
+    "temperature": 1.0,
+    "grad_clip": 5.0,
+    "df_bucket": 25,
+    "df_min_score": 0.55,
+    "replay_size": 100,
+    "replay_batch": 16,
+    "seed": 42
+  },
+  "prior_baseline": 0.07431595632431495,
+  "first_10_mean": 0.09191952046223631,
+  "last_10_mean": 0.5409633193130642,
+  "verdict": "LEARNED",
+  "replay_best": 0.8956874782888596
+}
