@@ -60,7 +60,9 @@ class Stage:
     version_independent: bool = False
 
 
-def build_plan(version: str, device: str, cycle: int, skip_retro: bool) -> list[Stage]:
+def build_plan(version: str, device: str, cycle: int, skip_retro: bool,
+               zoo_tag: str = "core", zoo_repeats: int = 10, rl_algo: str = "dap",
+               stack_metric: str = "spearman") -> list[Stage]:
     S = lambda *a: [str(x) for x in a]
     stage3 = "scripts/run_stage3_transfer.py"
     stage4 = "scripts/run_stage4_uq.py"
@@ -134,18 +136,63 @@ def build_plan(version: str, device: str, cycle: int, skip_retro: bool) -> list[
               makes=["{runs}/stage5_selectivity_reference.csv"], gpu=True,
               note="ensemble-propagated off-target margins + pan-kinase control check"),
 
+        # ---- the model zoo and the stacked critic (Cycle-03 additions) ---------------
+        # `zoo` is CPU-only and embarrassingly cheap next to the GPU stages: ~26 models x
+        # nested CV on 172 molecules. It is on the critical path to a defensible critic,
+        # because `stack` consumes its out-of-fold matrix and the RL stages can then use
+        # the result instead of the deep ensemble that lost the paired comparison.
+        Stage("zoo", S(PY, "scripts/run_stage2b_zoo.py", "--version", version,
+                       "--tag", zoo_tag, "--repeats", zoo_repeats),
+              needs=["{proc}/kinome_long_{ver}.parquet", "{proc}/splits_{ver}.json"],
+              makes=["{runs}/stage2b_zoo_summary.csv", "{runs}/stage2b_zoo_oof.csv"],
+              note="nested-CV benchmark of every registered base model x representation"),
+
+        # `stack` needs `oof` only to include the deep ensemble as a candidate; it runs
+        # without it and says so. Declared as a need anyway so the orchestrator orders the
+        # two correctly when both are in the plan.
+        Stage("stack", S(PY, "scripts/run_stage4b_stack.py", "--version", version,
+                         "--metric", stack_metric),
+              needs=["{runs}/stage2b_zoo_oof.csv"],
+              makes=["{runs}/stage4b_stack.json", "{proc}/stack.pkl"],
+              note="discrete super learner over the zoo + the deep ensemble"),
+
+        # Task selection is CPU-only, takes seconds, and its answer changes what the
+        # kinome stage should be pretrained ON -- so it is a separate, cheap stage rather
+        # than part of the expensive ladder.
+        Stage("taskselect", S(PY, "scripts/run_stage3b_transfer.py", "--version", version,
+                              "--task-selection-only"),
+              needs=["{proc}/kinome_long_{ver}.parquet"],
+              makes=["{runs}/stage3b_transfer_task_selection.csv"],
+              note="per-donor-kinase SAR correlation with TNK1: which of the 491 help"),
+
+        Stage("transfer", S(PY, "scripts/run_stage3b_transfer.py", "--version", version,
+                            "--device", device),
+              needs=["{proc}/kinome_long_{ver}.parquet", "{proc}/kinase_store.npz"],
+              makes=["{runs}/stage3b_transfer.csv"], gpu=True, optional=True,
+              note="fine-tuning strategy ladder: LP-FT, surgical, gradual, SWA, mixout"),
+
         Stage("prior", S(PY, "-m", "rl_min.train_prior", "--device", device),
               makes=["{proc}/rl_min/prior.pt"], gpu=True, version_independent=True,
               note="maximum-likelihood SMILES prior on the 788k corpus (the RL anchor)"),
 
+        # `--algo` defaults to dap, so a bare `--only rl` reproduces the v3 run exactly.
+        # `--out` carries the algorithm name whenever it is NOT dap, so a comparison run
+        # cannot overwrite the incumbent's artifacts -- and so `runs/rl_min/` keeps
+        # meaning "the DAP run of record".
         Stage("rl", S(PY, "-m", "rl_min.run_rl", "--scorer", "pipeline",
+                      "--algo", rl_algo,
                       "--prior", "{proc}/rl_min/prior.pt",
                       "--vocab", "{proc}/rl_min/vocab.txt",
+                      *([] if rl_algo == "dap" else ["--out", f"{{runs}}/rl_{rl_algo}"]),
                       "--version", version, "--device", device),
               needs=["{proc}/rl_min/prior.pt", "{proc}/ensemble", "{proc}/calibrator.pkl",
                      "{proc}/ad.pkl", "{proc}/admet_bundles.pt"],
-              makes=["{runs}/rl_min/agent.pt", "{runs}/rl_min/history.csv"], gpu=True,
-              note="DAP policy gradient against the PRODUCTION reward"),
+              makes=(["{runs}/rl_min/agent.pt", "{runs}/rl_min/history.csv"]
+                     if rl_algo == "dap"
+                     else [f"{{runs}}/rl_{rl_algo}/agent.pt",
+                           f"{{runs}}/rl_{rl_algo}/history.csv"]),
+              gpu=True,
+              note=f"{rl_algo} policy optimisation against the PRODUCTION reward"),
 
         Stage("cycle", S(PY, "scripts/run_stage8_cycle.py", "prepare", "--cycle", cycle,
                          "--device", device, "--version", version,
@@ -244,6 +291,20 @@ def main(argv=None) -> int:
                     help="adopt existing outputs whose provenance does not match this "
                          "version/dataset instead of rebuilding them")
     ap.add_argument("--plan", action="store_true", help="print the plan and exit")
+    # --- Cycle-03 stage parameters ---------------------------------------------------
+    ap.add_argument("--zoo-tag", default="core",
+                    help="`zoo` stage: which shortlist to benchmark (core|slow|probe)")
+    ap.add_argument("--zoo-repeats", type=int, default=10,
+                    help="`zoo` stage: repeated-CV repeats. 10 gives 50 fold scores, which "
+                         "is the minimum for a paired test that can reach p < 0.05; "
+                         "1 reuses only the frozen splits")
+    ap.add_argument("--stack-metric", default="spearman",
+                    choices=["rmse", "mae", "spearman"],
+                    help="`stack` stage: the CV risk the discrete super learner minimises")
+    ap.add_argument("--rl-algo", default="dap",
+                    help="`rl` stage: policy-optimisation objective "
+                         "(dap|ahc|ppo|grpo|rloo|gflownet). Anything but dap writes to "
+                         "runs/rl_<algo>/ so the DAP run of record is never overwritten")
     ap.add_argument("--timeout", type=float, default=None,
                     help="per-stage timeout in seconds (default: none)")
     a = ap.parse_args(argv)
@@ -254,7 +315,9 @@ def main(argv=None) -> int:
     ctx = {"proc": proc, "runs": runs, "ver": a.version, "cyc": a.cycle}
 
     fp = dataset_fingerprint(proc, a.version)
-    plan = build_plan(a.version, a.device, a.cycle, a.skip_retro)
+    plan = build_plan(a.version, a.device, a.cycle, a.skip_retro,
+                      zoo_tag=a.zoo_tag, zoo_repeats=a.zoo_repeats,
+                      rl_algo=a.rl_algo, stack_metric=a.stack_metric)
     # The `data` stage is SELF-CERTIFYING: its output carries a .sha256 sidecar written by
     # `save_locked`, and that digest is the very fingerprint downstream stages are compared
     # against. If the table verifies, the stage is current by definition -- no state record

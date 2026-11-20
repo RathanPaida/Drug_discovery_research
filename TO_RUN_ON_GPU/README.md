@@ -52,6 +52,48 @@ sbatch hpc/submit_gpu.sh ens           # GPU stage
 sbatch hpc/submit_gpu.sh rl            # RL stage
 ```
 
+### Option D: Cycle-03 Sweeps (Slurm job ARRAYS)
+The model zoo, the representation sweep and the RL-algorithm comparison are N independent
+runs with no dependencies between them — the opposite shape from the DAG above. Forcing
+them through `run_pipeline.sh`'s single GPU lane would serialise runs that could overlap,
+and putting them in the same chain would let one unrelated failure cancel the rest. They
+use job arrays with a `%` concurrency cap, which Slurm enforces itself:
+
+```bash
+bash hpc/run_sweeps.sh models          # zoo -> stack, both CPU. ~1-2 h, no GPU needed
+bash hpc/run_sweeps.sh reps            # representation sweep, 6 CPU array tasks
+bash hpc/run_sweeps.sh rl              # 6 RL objectives, GPU array, 2 concurrent
+bash hpc/run_sweeps.sh all             # models -> reps -> rl, chained
+bash hpc/run_sweeps.sh rl --dry-run    # print the sbatch lines, queue nothing
+```
+
+Or submit one array directly:
+```bash
+sbatch --array=0-5%2 hpc/submit_array.sh rlalgo    # dap ahc grpo rloo ppo gflownet
+sbatch --array=0-5%4 hpc/submit_array.sh zoorep    # 6 representations
+sbatch --array=0-9%2 hpc/submit_array.sh transfer  # 10 fine-tuning strategies
+sbatch --array=0-3%4 hpc/submit_array.sh zoo       # 4 model shortlists by tag
+```
+
+`run_sweeps.sh` prints which of the 26 registered zoo models this environment can actually
+run **before queueing anything** — a sweep that silently drops 6 models produces a results
+table whose absences look like failures. Install the optional ones first:
+```bash
+pip install lightgbm catboost ngboost
+```
+
+Read the results with:
+```bash
+python scripts/compare_sweeps.py       # all four questions, one table each
+```
+
+The GPU array defaults to 2 concurrent tasks x `shard:16` = 32 shards, deliberately more
+than `run_pipeline.sh`'s single lane because a sweep is a one-off. Lower it with
+`TNK1_ARRAY_GPU_CONCURRENCY=1` if the node is shared.
+
+**See [`docs/CYCLE_03_PLAN.md`](docs/CYCLE_03_PLAN.md) for what to run in what order, and
+why.** Nothing in Cycle 03 has been run on real data yet.
+
 ---
 
 ## 2. Directory Layout

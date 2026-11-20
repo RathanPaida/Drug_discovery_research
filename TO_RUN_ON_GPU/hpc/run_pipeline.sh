@@ -24,7 +24,7 @@ DRY=0
 for a in "$@"; do [ "$a" = "--dry-run" ] && DRY=1; done
 [ "${FROM:-}" = "--dry-run" ] && FROM=""
 
-STAGES=" preflight baselines ens oof critic calibrate admet prior rl cycle selectivity compare ablate "
+STAGES=" preflight baselines zoo stack taskselect transfer ens oof critic calibrate admet prior rl cycle selectivity compare ablate "
 case "$MODE" in smoke|fast|full) ;; *) echo "mode must be smoke|fast|full (got '$MODE')" >&2; exit 2 ;; esac
 if [ -n "$FROM" ]; then
     case "$STAGES" in *" $FROM "*) ;; *) echo "unknown stage '$FROM' (one of:$STAGES)" >&2; exit 2 ;; esac
@@ -202,12 +202,26 @@ want() {  # true from $FROM onwards
 #
 # `selectivity` and `compare` are likewise moved after `rl`: both are cheap readouts that
 # nothing else depends on.
-PRE=""; BAS=""; ENS=""; OOF=""; CAL=""; ADM=""; PRI=""; RL=""
+PRE=""; BAS=""; ZOO=""; ENS=""; OOF=""; CAL=""; ADM=""; PRI=""; RL=""
 want preflight   && PRE=$(submit cpu preflight   ""                 preflight)
 want baselines   && BAS=$(submit cpu baselines   "$PRE"             baselines)
+# zoo and stack are CPU-only and cost minutes, so they sit outside the GPU lane entirely
+# and cannot delay the critical path. They are on it in the LOGICAL sense, though: `stack`
+# produces data/processed/stack.pkl, which is the defensible critic the RL stages should
+# be optimised against instead of the deep ensemble that lost the paired comparison
+# (Spearman 0.501 vs the random forest's 0.686, per-row p = 8.6e-4).
+want zoo         && ZOO=$(submit cpu zoo         "$PRE"             zoo)
+# taskselect is seconds of pandas: it answers "which of the 491 donor kinases
+# actually share SAR with TNK1", which changes what the kinome stage should be
+# pretrained on. Cheap enough to run every time.
+want taskselect  &&       submit cpu taskselect  "$PRE"             taskselect >/dev/null
 want ens         && ENS=$(submit gpu ens         "$PRE"             ens)
 want oof         && OOF=$(submit gpu oof         "$ENS"             oof)
 want critic      &&       submit cpu critic      "$OOF"             critic >/dev/null
+# stack wants `oof` too, for the DeepEnsemble candidate column, but runs without it
+# and says so in its log -- so a missing oof degrades the comparison rather than
+# blocking the stage.
+want stack       &&       submit cpu stack       "$ZOO:$OOF"        stack >/dev/null
 want calibrate   && CAL=$(submit gpu calibrate   "$OOF"             calibrate)
 want admet       && ADM=$(submit gpu admet       "$PRE"             admet)
 want prior       && PRI=$(submit gpu prior       "$PRE"             prior)
@@ -216,6 +230,11 @@ want cycle       &&       submit gpu cycle       "$RL"              cycle >/dev/
 want selectivity &&       submit gpu selectivity "$ENS"             selectivity >/dev/null
 want compare     &&       submit gpu compare     "$CAL"             compare >/dev/null
 want ablate      &&       submit gpu ablate      "$PRE"             ablate >/dev/null
+# `transfer` is 10 fine-tuning strategies x 5 folds, each needing its own kinome
+# trunk -- comparable in cost to `ablate`, and like `ablate` it justifies an
+# architecture choice rather than producing molecules. Submitted last, and better
+# run as an array:  sbatch --array=0-9%2 hpc/submit_array.sh transfer
+want transfer    &&       submit gpu transfer    "$PRE"             transfer >/dev/null
 
 echo
 if [ "$DRY" = 1 ]; then

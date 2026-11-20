@@ -31,7 +31,7 @@ done
 source "$_cfg"
 activate_env
 
-STAGE="${1:?usage: sbatch hpc/submit_cpu.sh <stage>   (preflight|baselines|critic|report)}"; shift || true
+STAGE="${1:?usage: sbatch hpc/submit_cpu.sh <stage>   (preflight|baselines|zoo|stack|critic|report)}"; shift || true
 
 echo "[dug] node=$(hostname) stage=$STAGE config=$TNK1_CONFIG cpus=${SLURM_CPUS_PER_TASK:-?}"
 python scripts/run_pipeline.py --version v3 --device cpu --only "$STAGE" "$@"

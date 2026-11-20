@@ -19,3 +19,10 @@ gemmi
 
 # Retrospective baselines (Stage 2)
 xgboost
+
+# Stage 2b model zoo (optional, and reported as missing rather than failing the run --
+# see tnk1.zoo.available()). Three of these are the literature's top picks for a dataset
+# of ~172 molecules, so install them before any sweep you intend to report.
+lightgbm
+catboost
+ngboost

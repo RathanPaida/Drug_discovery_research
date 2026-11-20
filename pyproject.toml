@@ -46,6 +46,20 @@ chem = [
     "gemmi>=0.6",
     "tqdm>=4.65",
 ]
+# Stage 2b model zoo. EVERY one of these is optional: `tnk1.zoo.available()` reports
+# which models the environment can run and the sweep excludes the rest rather than
+# failing, so a missing wheel costs you candidate models, not the run. Install them
+# before a sweep you intend to report -- six of the 26 registered models need these, and
+# three of those (lgbm, catboost, ngboost) are among the literature's top picks at this
+# data scale.
+zoo = [
+    "lightgbm>=4.0",     # Boldini et al. 2023: matches/beats XGBoost on SMALL datasets
+    "catboost>=1.2",     # best mean rank over 25 ADMET sets (Kamuntavicius et al. 2025)
+    "ngboost>=0.4",      # native predictive sigma; DIONYSUS singles it out below ~100 mols
+]
+# Optional extra representations.
+descriptors = ["mordred>=1.2"]
+
 # Stage 3 pocket embeddings (a precomputed kinase_store.npz can substitute).
 esm = ["fair-esm>=2.0"]
 # Stage 5 endpoint download (the local admet_7endpoints.parquet can substitute).
@@ -53,7 +67,7 @@ tdc = ["PyTDC>=0.4"]
 # Stage 8 retrosynthesis. ~1 GB of model files are NOT shipped; see configs/aizynth.yml.
 retro = ["aizynthfinder>=4.0"]
 dev = ["pytest>=7.4", "pytest-cov>=4.1"]
-all = ["tnk1[chem,esm,tdc,dev]"]
+all = ["tnk1[chem,zoo,esm,tdc,dev]"]
 
 # No [project.scripts]: `scripts/` is a directory of standalone entry points, not an
 # importable package (each file bootstraps sys.path itself), so console-script targets

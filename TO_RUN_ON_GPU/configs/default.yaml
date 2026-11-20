@@ -271,6 +271,59 @@ rl:
   # other endpoints are reasonable, and r_sa < 0.05 is SA > 5.3.
   veto: {safety: 0.10, sa: 0.05}
 
+  # ---- Stage 7b: alternative policy-optimisation objectives -------------------------
+  #
+  # One sub-block per algorithm, read ONLY by that algorithm's trainer, and read from
+  # `rl.<algo>`. `rl_min/run_rl.py` REFUSES a key the selected trainer does not read
+  # rather than ignoring it: silently unread config keys are this repository's most
+  # recurrent defect class (eight of them in CHANGES_V3.md section 7, `rl.steps` as an
+  # inert argparse literal, and the adme/qed components computed and discarded). The
+  # accepted keys are declared in rl_min/algos/__init__.py::EXTRA_CONFIG_KEYS.
+  #
+  # `--algo dap` is the default and reads none of these, so an existing command line
+  # reproduces the v3 run of record bit-for-bit.
+
+  ahc:                        # Augmented Hill-Climb (Thomas et al., J Cheminform 2022)
+    topk: 0.5                 # fraction of each batch the loss is computed on. The
+                              # paper's sample-efficiency claim rests on this: DAP
+                              # regresses the agent onto the augmented likelihood for
+                              # EVERY sample, and for a zero-scoring molecule that target
+                              # is just the prior -- so the update spends gradient pulling
+                              # the agent back toward chemistry it already knows.
+    ahc_min_keep: 8           # never update on fewer than this, whatever topk works out to
+
+  grpo:                       # Group-relative policy optimisation (Shao et al. 2024)
+    pg_advantage: grpo        # the batch IS the group: no prompt, one shared comparison set
+    pg_clip: 0.2
+    pg_epochs: 1              # on-policy; raise only with pg_clip in place
+    kl_coef: 0.02             # anchor to the 788k-molecule prior. NOT optional: policy
+                              # gradient without it degrades validity within tens of steps
+    kl_target: null           # set a float to adapt kl_coef toward it (dual descent)
+
+  rloo:                       # REINFORCE leave-one-out (Ahmadian et al., ACL 2024)
+    pg_advantage: rloo        # unbiased baseline, no critic, no clipping
+    kl_coef: 0.02
+    kl_target: null
+
+  ppo:                        # Clipped surrogate with batch reuse (Schulman et al. 2017)
+    pg_advantage: mean
+    pg_clip: 0.2
+    pg_epochs: 4              # the reuse PPO exists for; watch clip_frac in history.csv
+    kl_coef: 0.02
+    kl_target: null
+
+  gflownet:                   # Trajectory balance (Malkin et al. 2022)
+    gfn_beta: 1.0             # reward exponent: P(x) proportional to R(x)^beta, so beta=1
+                              # samples IN PROPORTION to reward instead of seeking the
+                              # mode -- the structurally different answer to the diversity
+                              # and selectivity collapse. Sweep it; this is the diversity
+                              # knob, and far more interpretable than DAP's sigma, which is
+                              # confounded with the reward's attainable range.
+    gfn_r_floor: 1.0e-4       # log R needs R > 0. n_floored is logged per step, so a run
+                              # where most of the batch sat on the floor is visible.
+    gfn_logz_lr: 0.1          # log Z needs a much larger learning rate than the policy
+    gfn_prior_weight: 0.0     # 0 = pure TB; raise to keep the prior's syntax as an anchor
+
 # ---------------- Stage 7 alternative backend: rl_min ----------------
 # In-process DAP trainer (rl_min/). Unlike the REINVENT path it needs no second conda env
 # and no REST server, and it TRAINS the generator rather than sampling a fixed pool.
@@ -292,6 +345,48 @@ rl_min:
   temperature: 1.0
   baseline_n: 2000            # prior samples scored before training, for the comparison
                               # that distinguishes "policy improved" from "drew more samples"
+
+# ---------------- Stage 2b / 4b: the model zoo and the stacked critic ----------------
+zoo:
+  tag: core                   # which shortlist to benchmark (core|probe|slow|control)
+  repeats: 10                 # repeated CV. The exact Wilcoxon floor at 5 folds is
+                              # p >= 0.0625, so 5 fold scores can NEVER reach p < 0.05;
+                              # 10 repeats x 5 folds = 50 scores can.
+  inner_metric: rmse          # what the inner folds select hyperparameters on
+  incumbent: rf               # every challenger is tested against this ONE model under
+                              # Holm correction: 19 comparisons, not 190. The best of 20
+                              # models beats its own honest estimate by roughly the spread
+                              # of the 20 (Cawley & Talbot, JMLR 11:2079, 2010).
+  scaler: robust              # robust | cdf (Chemprop-style empirical-CDF normalisation)
+
+stack:
+  metric: spearman            # the CV risk the discrete super learner minimises --
+                              # Spearman, because that is what the RL reward's ordering
+                              # consumes.
+  min_coverage: 0.95          # drop a model that predicted fewer than this fraction of rows
+  # The discrete super learner evaluates every combiner AND every individual model as
+  # candidates (Phillips, van der Laan, Lee & Gruber, Int J Epidemiol 2023, step 5), so the
+  # selected predictor can never be worse than the best single model. This project shipped
+  # a combination -- the 10-member deep ensemble -- that was worse than a plain random
+  # forest (Spearman 0.501 vs 0.686) and optimised a generator against it for 6 GPU-hours.
+
+critic:
+  backend: ensemble           # ensemble | zoo | zoo_stack
+                              # `zoo`/`zoo_stack` route r_pot and r_sel through
+                              # tnk1.zoo.critic instead of the deep ensemble. The scorer
+                              # reaches the critic through only predict_members() and
+                              # latent(), so this is an adapter, not a rewrite.
+  zoo_model: rf               # backend=zoo: which registered model
+  zoo_models: [rf, gp_minmax, lgbm]   # backend=zoo_stack: the member library
+  zoo_stacker: nnls
+  min_rows: 30                # a panel kinase with fewer exact rows is ABSENT from
+                              # predictions rather than modelled from nothing: a fabricated
+                              # off-target prediction flows straight into r_sel
+  kappa: 1.0                  # pessimistic reward: optimise mu - kappa*sigma_epi. A
+                              # stacked critic's sigma_epi IS the cross-architecture
+                              # disagreement the v3 audit gate caught at 1.8 log units
+                              # AFTER the fact; this charges for it during training
+                              # (MOPO, Yu et al. 2020; MOReL, Kidambi et al. 2020).
 
 # ---------------- Stage 8 ----------------
 al:

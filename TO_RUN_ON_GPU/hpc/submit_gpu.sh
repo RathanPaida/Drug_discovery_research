@@ -41,6 +41,11 @@ source "$_cfg"
 activate_env
 
 STAGE="${1:?usage: sbatch hpc/submit_gpu.sh <stage>   (ens|oof|calibrate|compare|admet|selectivity|prior|rl|lambda|ablate|cycle)}"; shift || true
+# NB a non-default RL objective goes through run_pipeline.py's --rl-algo, which this
+# script forwards along with any other extra flags:
+#   sbatch hpc/submit_gpu.sh rl --rl-algo grpo
+# or, for the whole 6-algorithm sweep at once, use the array:
+#   sbatch --array=0-5%2 hpc/submit_array.sh rlalgo
 
 echo "[dug] node=$(hostname) stage=$STAGE config=$TNK1_CONFIG"
 echo "[dug] shards=${SLURM_JOB_GRES:-?} cpus=${SLURM_CPUS_PER_TASK:-?} mem=${SLURM_MEM_PER_NODE:-?}MB"

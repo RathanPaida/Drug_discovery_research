@@ -113,8 +113,11 @@ def build_pipeline_scorer(config, version, device, calibrate_n=None, cache="step
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--prior", required=True)
-    ap.add_argument("--vocab", required=True)
+    # Not `required=True`: that is enforced below instead, so `--list-algos` can run
+    # without inventing a prior path. The check that replaces it is strictly louder --
+    # it names the command that builds the missing artifact.
+    ap.add_argument("--prior", default=None)
+    ap.add_argument("--vocab", default=None)
     ap.add_argument("--out", default=None, help="default: <runs>/rl_min")
     # default=None, then fall back to the config. With literal defaults here, rl.steps /
     # rl.batch_size / rl.sigma / rl.lr in configs/*.yaml were INERT for this entry point:
@@ -126,6 +129,16 @@ def main(argv=None) -> int:
     ap.add_argument("--batch-size", type=int, default=None, help="default: rl.batch_size")
     ap.add_argument("--sigma", type=float, default=None, help="default: rl.sigma")
     ap.add_argument("--lr", type=float, default=None, help="default: rl.lr")
+    # The policy-optimisation objective. `dap` is the incumbent and the default, so an
+    # existing command line reproduces bit-for-bit; every alternative honours the same
+    # trainer signature, so nothing downstream (history.csv, best_molecules.csv,
+    # meta.json, the Stage-8 hand-off) changes shape.
+    from .algos import ALGOS as _ALGOS, describe as _describe
+    ap.add_argument("--algo", choices=_ALGOS, default="dap",
+                    help="policy-optimisation objective. " +
+                         " | ".join(f"{k}: {v}" for k, v in _describe().items()))
+    ap.add_argument("--list-algos", action="store_true",
+                    help="print the available RL algorithms and exit")
     ap.add_argument("--scorer", choices=("standalone", "pipeline"), default="standalone")
     ap.add_argument("--motif", default="c1ncnc(N)c1",
                     help="standalone scorer only: the SMARTS it rewards")
@@ -141,6 +154,19 @@ def main(argv=None) -> int:
     ap.add_argument("--version", default="v1")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args(argv)
+
+    if a.list_algos:
+        from .algos import EXTRA_CONFIG_KEYS
+        for k, v in _describe().items():
+            print(f"{k:10} {v}")
+            keys = EXTRA_CONFIG_KEYS.get(k, ())
+            print(f"{'':10} config block rl.{k}: "
+                  f"{', '.join(keys) if keys else '(no extra keys)'}")
+        return 0
+
+    missing_args = [f"--{n}" for n in ("prior", "vocab") if not getattr(a, n)]
+    if missing_args:
+        ap.error(f"the following arguments are required: {', '.join(missing_args)}")
 
     for p in (Path(a.prior), Path(a.vocab)):
         if not p.exists():
@@ -251,7 +277,35 @@ def main(argv=None) -> int:
                           ("steps", "batch_size", "sigma", "lr", "max_len", "temperature",
                            "grad_clip", "df_bucket", "df_min_score", "replay_size",
                            "replay_batch", "seed")}
-    print(f"[dap] {meta['dap_config']}")
+
+    # ---- the chosen algorithm's own hyperparameters -----------------------------------
+    # Read from `rl.<algo>` in the config and ATTACHED to the DAPConfig instance, which is
+    # what every trainer reads them off via getattr(cfg, name, default). A key present in
+    # the config but not in EXTRA_CONFIG_KEYS is REFUSED rather than ignored: silently
+    # unread config keys are this repository's most recurrent defect class -- eight of them
+    # in CHANGES_V3.md section 7, `rl.steps` as an inert argparse literal, and the
+    # adme/qed components computed and discarded.
+    from .algos import EXTRA_CONFIG_KEYS, get_trainer
+    algo_cfg = dict((_rl.get(a.algo) or {}))
+    allowed = set(EXTRA_CONFIG_KEYS.get(a.algo, ()))
+    unknown = sorted(set(algo_cfg) - allowed)
+    if unknown:
+        raise SystemExit(
+            f"config block rl.{a.algo} has key(s) {unknown} that the {a.algo!r} trainer "
+            f"never reads. It accepts {sorted(allowed) or 'no extra keys'}. Remove them, "
+            f"or they will read as set and do nothing.")
+    for k, v in algo_cfg.items():
+        setattr(cfg, k, v)
+    meta["algo"] = a.algo
+    meta["algo_config"] = {k: getattr(cfg, k) for k in sorted(allowed)
+                           if hasattr(cfg, k)}
+    trainer = get_trainer(a.algo)
+    print(f"[{a.algo}] {meta['dap_config']}")
+    if meta["algo_config"]:
+        print(f"[{a.algo}] algo-specific: {meta['algo_config']}")
+    elif allowed:
+        print(f"[{a.algo}] algo-specific: defaults (config block rl.{a.algo} is absent); "
+              f"accepts {sorted(allowed)}")
 
     hist_path = out / "history.csv"
 
@@ -261,10 +315,10 @@ def main(argv=None) -> int:
               f"| scaf {m['n_scaffolds']:>3} | loss {m['loss']:9.1f} "
               f"| best {m['replay_best']:.3f}")
 
-    hist, replay = train_dap(prior, agent, vocab, scorer, cfg, a.device,
-                             # cfg.steps, not a.steps: the latter is None whenever the
-                             # value came from the config rather than the command line.
-                             log_every=max(1, cfg.steps // 30), logger=log)
+    hist, replay = trainer(prior, agent, vocab, scorer, cfg, a.device,
+                           # cfg.steps, not a.steps: the latter is None whenever the
+                           # value came from the config rather than the command line.
+                           log_every=max(1, cfg.steps // 30), logger=log)
 
     import pandas as pd
     agent.save(out / "agent.pt")

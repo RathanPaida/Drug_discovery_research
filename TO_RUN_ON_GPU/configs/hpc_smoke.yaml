@@ -274,6 +274,14 @@ rl:
   veto:
     safety: 0.1
     sa: 0.05
+  # ---- Stage 7b: alternative policy-optimisation objectives (see configs/default.yaml
+  # for the full commentary). `--algo dap` is the default and reads none of these.
+  # rl_min/run_rl.py REFUSES a key the selected trainer does not read.
+  ahc:        {topk: 0.5, ahc_min_keep: 2}
+  grpo:       {pg_advantage: grpo, pg_clip: 0.2, pg_epochs: 1, kl_coef: 0.02, kl_target: null}
+  rloo:       {pg_advantage: rloo, kl_coef: 0.02, kl_target: null}
+  ppo:        {pg_advantage: mean, pg_clip: 0.2, pg_epochs: 2, kl_coef: 0.02, kl_target: null}
+  gflownet:   {gfn_beta: 1.0, gfn_r_floor: 1.0e-4, gfn_logz_lr: 0.1, gfn_prior_weight: 0.0}
 rl_min:
   corpus: unique_molecules_788k.parquet
   corpus_col: canonical_smiles
@@ -307,3 +315,25 @@ al:
   exploit_lcb_k: 1.0
   exploit_min_sel: 1.5
   explore_min_mu: 6.3
+
+# ---------------- Stage 2b / 4b: the model zoo and the stacked critic ----------------
+# Commentary in configs/default.yaml. `repeats` is the one that matters here: the exact
+# Wilcoxon floor at 5 folds is p >= 0.0625, so repeats: 1 here is a SMOKE setting -- it proves the chain runs and must never be reported.
+zoo:
+  tag: control
+  repeats: 1
+  inner_metric: rmse
+  incumbent: rf
+  scaler: robust
+
+stack:
+  metric: spearman
+  min_coverage: 0.95
+
+critic:
+  backend: ensemble           # ensemble | zoo | zoo_stack
+  zoo_model: rf
+  zoo_models: [rf, gp_minmax, lgbm]
+  zoo_stacker: nnls
+  min_rows: 5
+  kappa: 1.0
