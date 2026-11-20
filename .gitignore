@@ -1,0 +1,21 @@
+# Large downloads and derived data. MANIFEST.json is the record of what should
+# be here and what its sha256 is -- commit that, not the ~40 GB it describes.
+external/
+interim/
+models/
+logs/
+structures/
+features/
+processed/
+raw/
+
+# ...except the small, cheap, high-value descriptor table, which is worth
+# keeping in the repo: it defines the kinome for tier 3 and is <10 MB.
+!raw/
+raw/*
+!raw/kinases.csv
+
+__pycache__/
+*.py[cod]
+*.part
+.DS_Store

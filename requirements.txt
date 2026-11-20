@@ -1,0 +1,31 @@
+# --- core (required for every tier) ---------------------------------------
+requests>=2.31
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0            # parquet; without it everything degrades to csv.gz
+
+# --- cheminformatics (required for tiers 1,2,3,5,9 and features) ----------
+# Pin RDKit. The feature checksums in MANIFEST.json are only reproducible
+# against a fixed RDKit version -- descriptor implementations change between
+# releases, and that will fail the SHA-256 acceptance test with no code change.
+rdkit==2024.3.5
+
+# --- tier 6 ADMET ----------------------------------------------------------
+PyTDC>=0.4.1
+
+# --- tier 3 breadth (optional but high-yield) ------------------------------
+# Papyrus is the single best curated kinase-rich bioactivity set; for a project
+# bottlenecked on 172 exact TNK1 points it is the highest-value optional install.
+papyrus-scripts>=2.0.0
+
+# --- tier 7 receptor prep (pick one) ---------------------------------------
+meeko>=0.5                 # preferred: better protonation/atom typing
+# openbabel-wheel          # fallback; or `conda install -c conda-forge openbabel`
+
+# --- tier 8 retrosynthesis -------------------------------------------------
+# aizynthfinder pulls a heavy ML stack; install in its own env if that clashes.
+aizynthfinder>=4.0
+
+# --- optional ---------------------------------------------------------------
+tables>=3.8                # hdf5 stock files for aizynthfinder
+tqdm>=4.66

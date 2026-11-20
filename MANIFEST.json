@@ -1,0 +1,15 @@
+{
+  "entries": {
+    "raw/kinases.csv": {
+      "acquired_utc": "2026-11-20T12:16:48Z",
+      "bytes": 619896,
+      "notes": "521 kinases with a full 85-residue pocket",
+      "rows": 555,
+      "sha256": "dc3cecc93898aaa34de5655d25692e8a5b85ef6a17c229b19cced78f9c63734c",
+      "source": "klifs+uniprot",
+      "tier": "4",
+      "url": "https://klifs.net/api/kinase_information"
+    }
+  },
+  "schema": 1
+}
