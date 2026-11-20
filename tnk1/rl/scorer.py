@@ -136,7 +136,24 @@ class Scorer:
             qed=P("qed"), qed_min=f.get("qed_min"),
         )
         total = R.aggregate(comps, w, gate, rl.get("veto"), components=self.components)
-        for c in self.components: out[c][vi] = comps[c]
+        # Scatter EVERY component that was computed, not only the ones `self.components`
+        # aggregates into R. `adme` and `qed` are outside COMPONENTS_V2, so under the v2
+        # reward they were computed on the lines above and then dropped on the floor --
+        # `out["adme"]` and `out["qed"]` kept the np.zeros init from the top of this method
+        # and were reported, and consumed, as all-zeros.
+        #
+        # That was not cosmetic. `scripts/run_stage8_cycle.py` feeds `P.adme` as one of six
+        # Pareto objectives, and a constant column cannot affect dominance -- every pair
+        # ties on it -- so ADME never influenced candidate selection at all, while `qed`
+        # was written into the candidate CSV as a column of zeros. The real values are
+        # non-trivial (adme median ~0.36 on the Cycle-02 generated set).
+        #
+        # Keep the loop over `comps`, not over any component list: a new component added to
+        # `comps` is then reported automatically instead of being silently discarded until
+        # someone notices it is suspiciously constant.
+        for c, v in comps.items():
+            if c not in out: out[c] = np.zeros(n)
+            out[c][vi] = v
         out["R"][vi], out["mu"][vi], out["sigma_epi"][vi] = total, d["mu"], d["sigma_epi"]
         out["sigma_ale"][vi], out["mu_sel"][vi], out["sigma_sel"][vi], out["d_lat"][vi] = d["sigma_ale"], sel["mu_sel"], sel["sigma_sel"], d_lat
         return {"beta": beta, **out}

@@ -150,8 +150,15 @@ def build_plan(version: str, device: str, cycle: int, skip_retro: bool) -> list[
         Stage("cycle", S(PY, "scripts/run_stage8_cycle.py", "prepare", "--cycle", cycle,
                          "--device", device, "--version", version,
                          *(["--skip-retro"] if skip_retro else []),
+                         # The pool is sampled from the trained agent, which is what
+                         # `al.pool_size` has always claimed. Passing only --rl-csv fed
+                         # Stage 8 the top-100 replay buffer, so the funnel was starved by
+                         # three orders of magnitude before any filter ran.
+                         "--agent", "{runs}/rl_min/agent.pt",
+                         "--vocab", "{proc}/rl_min/vocab.txt",
                          "--rl-csv", "{runs}/rl_min/best_molecules.csv"),
-              needs=["{runs}/rl_min/best_molecules.csv", "{proc}/ensemble"],
+              needs=["{runs}/rl_min/agent.pt", "{proc}/rl_min/vocab.txt",
+                     "{runs}/rl_min/best_molecules.csv", "{proc}/ensemble"],
               makes=["{runs}/cycle_{cyc:02d}/candidates_pre_docking.csv"], gpu=True,
               optional=True,
               note="pool -> hard gate -> dual-model audit -> Pareto -> docking request"),

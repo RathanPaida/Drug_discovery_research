@@ -259,7 +259,7 @@ Decomposing the ADME term: solubility sigmoid 0.906, **Caco-2 sigmoid 0.066**, m
 
 ## 4. Defects found during this run
 
-### 4.1 `adme` and `qed` are reported as all-zeros — **new, unfixed**
+### 4.1 `adme` and `qed` are reported as all-zeros — **fixed 2026-11-20**
 
 `tnk1/rl/scorer.py:139`:
 
@@ -280,13 +280,23 @@ A constant column cannot affect Pareto dominance — every pair ties on it. **AD
 
 This is the same defect class as the inert config keys fixed earlier this cycle: a quantity that is computed, reported, and never actually used. It did not change this run's outcome only because the audit gate emptied the pool before the Pareto step.
 
-Fix: scatter the computed components regardless of which ones the reward aggregates.
+**Fixed.** `tnk1/rl/scorer.py` now scatters every key of `comps`, not just the ones
+`self.components` aggregates, so a component added later cannot be silently discarded
+either. Pinned by 6 tests in `tests/test_component_scatter.py`, 5 of which fail against
+the old loop. **This run's `adme`/`qed` columns remain zeros** — the fix changes future
+runs, not the artifacts already in `runs/`.
 
-### 4.2 Stage 8 receives 100 molecules instead of 200 000 — **new, unfixed**
+### 4.2 Stage 8 receives 100 molecules instead of 200 000 — **fixed 2026-11-20**
 
 `al.pool_size` is 200 000, but the chain passes `--rl-csv runs/rl_min/best_molecules.csv`, which is the top-100 replay buffer. Nothing in the chain samples a large pool from the trained `agent.pt`. The funnel is starved by three orders of magnitude before any filter runs, so even a working audit gate would have little to select from.
 
-Fix: add a sampling step that draws `al.pool_size` molecules from `agent.pt`, or make the config honest about the 100.
+**Fixed.** `scripts/run_stage8_cycle.py` gained `pool_from_agent`, which samples
+`al.pool_size` unique SMILES on-policy from `agent.pt`, and the orchestrator now passes
+`--agent`/`--vocab`. A pool short of `al.pool_size` raises rather than proceeding;
+`--allow-small-pool` is the logged opt-out for smoke runs. Pinned by 11 tests in
+`tests/test_stage8_pool.py`. The sampling itself is untested on real weights — no torch
+or `agent.pt` exists off-cluster, so the first cluster run must check the reported
+unique-sample count against `al.pool_size`.
 
 ### 4.3 Uneven statistical footing — **methodological**
 
@@ -339,11 +349,11 @@ RMSE 5.03 means predictions wrong by five log units. SSL pretraining plus fine-t
 
 **Priority 2 — choose the paper's frame.** The recommendation is to **report the negative result as the headline, then fix the critic and show the pipeline works with it.** You now hold paired, 5-fold, per-row-significant evidence that a pan-kinome multi-task D-MPNN ensemble loses to a Morgan-count random forest at this data scale and produces uninformative uncertainty — plus a clean demonstration of an audit gate catching a generator exploiting a weak critic. Both are real, defensible contributions, and more valuable than a positive claim the data will not carry.
 
-**Priority 3 — fix the three concrete defects** before any rerun:
+**Priority 3 — fix the three concrete defects** before any rerun. Items 1 and 2 are done; item 3 is the one that still blocks a rerun worth the GPU hours, since a rerun against the same critic reproduces the same 1.8-log optimism gap and the same empty funnel:
 
-1. The `adme`/`qed` scatter at `tnk1/rl/scorer.py:139` — one line.
-2. Sample a real pool from `agent.pt` for Stage 8, or correct `al.pool_size`.
-3. Back `r_pot` / `r_sel` with RF or a stacked RF/GP. `tnk1/rl/scorer.py` touches the critic through only two duck-typed methods, `predict_members` and `latent`, so the change is contained.
+1. ~~The `adme`/`qed` scatter at `tnk1/rl/scorer.py:139`~~ — **done 2026-11-20**, §4.1.
+2. ~~Sample a real pool from `agent.pt` for Stage 8~~ — **done 2026-11-20**, §4.2.
+3. **Still open.** Back `r_pot` / `r_sel` with RF or a stacked RF/GP. `tnk1/rl/scorer.py` touches the critic through only two duck-typed methods, `predict_members` and `latent`, so the change is contained.
 
 **Priority 4 — rerun only `rl` → `cycle`** (≈2.8 h GPU). `ens`, `oof`, `calibrate`, `prior` and `admet` are valid and provenance-cached against `76ab324c1825`; the orchestrator will skip them.
 

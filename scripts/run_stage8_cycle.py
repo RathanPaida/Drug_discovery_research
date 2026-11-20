@@ -19,9 +19,87 @@ def pool_from_reinvent(paths):
     col = next(c for c in d.columns if c.lower() == "smiles"); return pd.Series(d[col].dropna().unique())
 
 
+def collect_unique(sample_fn, n, max_rounds=200):
+    """Draw from `sample_fn()` until `n` unique non-empty SMILES are held, or the rounds run out.
+
+    Factored out of `pool_from_agent` so the de-duplication and stopping rule are testable
+    without torch, a trained agent or a GPU. `sample_fn` returns a list of raw decoded
+    strings; duplicates and empties are expected (an autoregressive sampler emits plenty of
+    both) and the draw order is preserved so a seeded sampler gives a reproducible pool.
+    """
+    seen, order = set(), []
+    for _ in range(max_rounds):
+        if len(order) >= n: break
+        batch = sample_fn()
+        if not batch: break                      # an exhausted sampler would otherwise spin
+        for s in batch:
+            s = (s or "").strip()
+            if s and s not in seen:
+                seen.add(s); order.append(s)
+    return order[:n]
+
+
+def pool_from_agent(agent_path, vocab_path, n, device="cuda", seed=0, batch=4096,
+                    max_len=128, temperature=1.0):
+    """Sample `n` unique SMILES on-policy from the trained DAP agent.
+
+    This is the step the chain was missing. `configs/default.yaml` describes `al.pool_size`
+    as "candidates drawn from the trained agent", but nothing sampled from `agent.pt`: the
+    chain passed `--rl-csv runs/rl_min/best_molecules.csv`, which is the top-100 replay
+    buffer, and then sliced `al.pool_size` out of it. The funnel was therefore starved by
+    three orders of magnitude before any filter ran -- `.iloc[:200000]` on 100 rows is 100
+    rows, and nothing said so.
+    """
+    import torch
+    from rl_min.model import SmilesRNN
+    from rl_min.vocab import Vocabulary
+    torch.manual_seed(seed)
+    vocab = Vocabulary.load(vocab_path)
+    agent = SmilesRNN.load(agent_path, device=device)
+
+    def draw():
+        seqs, _ = agent.sample_with(vocab, batch, max_len=max_len, device=device,
+                                    temperature=temperature)
+        return [vocab.decode(r) for r in seqs]
+
+    smis = collect_unique(draw, n, max_rounds=max(1, 4 * -(-n // batch)))
+    print(f"[stage8] sampled {len(smis)} unique SMILES from {agent_path} "
+          f"(target {n}, batch {batch}, seed {seed})")
+    return pd.Series(smis)
+
+
+def require_pool_size(got, want, allow_small):
+    """Fail-closed on a pool that is nowhere near the configured size.
+
+    `al.pool_size` silently meaning 100 is the defect this guards. A shortfall is either a
+    wiring mistake (no `--agent`, so the pool is the replay buffer) or a sampler that could
+    not produce enough unique molecules; both change what the funnel means, so neither may
+    pass unremarked. `--allow-small-pool` is the explicit, logged opt-out for smoke runs.
+    """
+    if got >= want: return
+    msg = (f"pool holds {got} molecules but al.pool_size is {want}. "
+           f"Pass --agent/--vocab to sample a real pool from the trained agent, lower "
+           f"al.pool_size to a number the run can actually supply, or pass "
+           f"--allow-small-pool to proceed on {got} and accept that every downstream "
+           f"survival rate is computed over that pool, not over {want}.")
+    if not allow_small: raise SystemExit(f"[stage8] {msg}")
+    print(f"[stage8] WARNING --allow-small-pool: {msg}")
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("cmd"); ap.add_argument("--cycle", type=int, required=True)
     ap.add_argument("--rl-csv", nargs="*"); ap.add_argument("--docking", default=None); ap.add_argument("--results", default=None)
+    # The pool. `--agent` is the scientifically correct source: al.pool_size molecules
+    # sampled on-policy from the trained generator. `--rl-csv` alone is the top-100 replay
+    # buffer and is now rejected unless --allow-small-pool says so out loud.
+    ap.add_argument("--agent", default=None, help="trained agent.pt to sample the pool from "
+                    "(default: <runs>/rl_min/agent.pt when it exists)")
+    ap.add_argument("--vocab", default=None, help="vocabulary for --agent "
+                    "(default: <processed>/rl_min/vocab.txt)")
+    ap.add_argument("--sample-batch", type=int, default=4096, help="agent samples per draw")
+    ap.add_argument("--sample-seed", type=int, default=None, help="default: --cycle")
+    ap.add_argument("--allow-small-pool", action="store_true",
+                    help="proceed when the pool is smaller than al.pool_size (smoke runs)")
     ap.add_argument("--aizynth-config", default=None,
                     help="default: <repo>/configs/aizynth.yml")
     # Retrosynthetic feasibility FILTERS candidates; it feeds no model. Skipping changes
@@ -54,7 +132,25 @@ def main():
         from tnk1.baselines.models import TanimotoGP
         from tnk1.active_learning.retro import retro_screen
         ens, cal, ad, scorer = load_stack()
-        pool = pool_from_reinvent(a.rl_csv).sample(frac=1.0, random_state=a.cycle).iloc[: al["pool_size"]]
+        want = int(al["pool_size"])
+        seed = a.cycle if a.sample_seed is None else a.sample_seed
+        agent_p = Path(a.agent) if a.agent else C.runs / "rl_min" / "agent.pt"
+        vocab_p = Path(a.vocab) if a.vocab else C.proc / "rl_min" / "vocab.txt"
+        if a.agent or (agent_p.exists() and vocab_p.exists()):
+            if not agent_p.exists(): raise SystemExit(f"[stage8] --agent {agent_p} does not exist")
+            if not vocab_p.exists(): raise SystemExit(f"[stage8] --vocab {vocab_p} does not exist")
+            pool = pool_from_agent(agent_p, vocab_p, want, device=a.device, seed=seed,
+                                   batch=a.sample_batch)
+        else:
+            if not a.rl_csv:
+                raise SystemExit(f"[stage8] no pool source: {agent_p} is absent and no "
+                                 f"--rl-csv was given")
+            print(f"[stage8] NOTE no agent at {agent_p}; falling back to --rl-csv, which is "
+                  f"the RL replay buffer (the top-scoring molecules kept during training), "
+                  f"not a sample from the generator's current distribution.")
+            pool = pool_from_reinvent(a.rl_csv).sample(frac=1.0, random_state=seed)
+        require_pool_size(len(pool), want, a.allow_small_pool)
+        pool = pool.iloc[:want]
         std = [standardize_smiles(s) for s in pool]; rows = [r for r in std if r]
         P = pd.DataFrame(rows).drop_duplicates("inchikey_block1")
         P = P[~P.inchikey_block1.isin(set(C.df.inchikey_block1))].reset_index(drop=True)      # vs ChEMBL + in-house
