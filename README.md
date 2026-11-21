@@ -35,7 +35,7 @@ that its uncertainty is uninformative, and that the generator exploited it — p
 
 For the **Cycle-03 response** to that result — a 26-model zoo with GP/SVR/GBDT
 alternatives, a discrete super learner that cannot ship worse than its best member,
-difficulty-conditional conformal prediction, six RL objectives including GFlowNet
+difficulty-conditional conformal prediction, eight RL objectives including GFlowNet
 trajectory balance, an uncertainty-penalised reward, pretraining-task selection, and what
 data to collect next — please see:
 

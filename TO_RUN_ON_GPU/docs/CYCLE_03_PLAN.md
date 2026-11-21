@@ -290,7 +290,7 @@ New, from this cycle:
 **Not verified:** nothing has been run on the real 172-molecule table or on a GPU. In particular —
 
 - the model-zoo ranking is unmeasured; the claim that SVR/GP may beat RF is a literature expectation, not a result here;
-- the six RL trainers have had their mathematics tested and their shapes checked, but **no gradient step has been taken with any of them**;
+- the eight RL trainers have had their mathematics tested and their shapes checked, but **no gradient step has been taken with any of them**;
 - `pool_from_agent` (the Stage-8 pool fix from earlier today) is still untested on real weights — the first cluster run must check the reported unique-sample count against `al.pool_size`;
 - `ft_mixout` applies mixout per *epoch*, not per forward pass as the paper does. Flagged in its docstring.
 

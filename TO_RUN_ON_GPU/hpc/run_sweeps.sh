@@ -13,7 +13,7 @@
 # run_pipeline.sh submits ONE dependency chain through a single GPU lane, because the
 # production stages must run in order and together they would otherwise hold 48-64 of the
 # node's 94 shards. The sweeps have the opposite structure: N independent runs that share
-# no state. Forcing them through that lane would serialise 6 RL runs that could overlap,
+# no state. Forcing them through that lane would serialise 8 RL runs that could overlap,
 # and putting them in the same chain would make an unrelated failure cancel them.
 #
 # So: Slurm job ARRAYS with a `%` concurrency cap, which Slurm enforces itself. The GPU

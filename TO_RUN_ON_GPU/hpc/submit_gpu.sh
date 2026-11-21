@@ -44,8 +44,12 @@ STAGE="${1:?usage: sbatch hpc/submit_gpu.sh <stage>   (ens|oof|calibrate|compare
 # NB a non-default RL objective goes through run_pipeline.py's --rl-algo, which this
 # script forwards along with any other extra flags:
 #   sbatch hpc/submit_gpu.sh rl --rl-algo grpo
-# or, for the whole 6-algorithm sweep at once, use the array:
-#   sbatch --array=0-5%2 hpc/submit_array.sh rlalgo
+# or, for the whole 8-algorithm sweep at once, use the array. The range must match
+# RL_ALGOS in submit_array.sh, which has 8 entries: `0-5` was left here when the set grew
+# and would have run only the first six, silently skipping grpo and gflownet (an index
+# ABOVE the range errors; one below just never launches).
+#   sbatch --array=0-7%2 hpc/submit_array.sh rlalgo
+# or let run_sweeps.sh compute the range for you:  bash hpc/run_sweeps.sh rl
 
 # See the note in submit_cpu.sh: this was hardcoded `v3`, so a run against a newly
 # frozen kinome_long_v4.parquet would have silently used the old table instead.

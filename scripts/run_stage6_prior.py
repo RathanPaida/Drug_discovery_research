@@ -1,5 +1,15 @@
-"""Stage 6: build the kinase corpus, write REINVENT 4 transfer-learning/sampling TOMLs, and QC the tuned prior.
-usage: run_stage6_prior.py {prepare|qc}   (run `reinvent <toml>` in the tnk1-reinvent env between the two)"""
+"""SUPERSEDED -- the REINVENT-4 prior path. The pipeline does not use this.
+
+Builds the kinase corpus, writes REINVENT 4 transfer-learning/sampling TOMLs and QCs the
+tuned prior. `scripts/run_pipeline.py`'s `prior` stage runs `python -m rl_min.train_prior`
+instead, which trains its own SMILES RNN on the 788k store and needs no
+`priors/reinvent.prior`, no second conda environment and no TOML.
+
+Kept because it works and produced the v1 prior. See `rl_min/README.md` and
+`priors/README.md` for which backend you are actually on.
+
+usage: run_stage6_prior.py {prepare|qc}   (run `reinvent <toml>` in the tnk1-reinvent env between the two)
+"""
 import argparse, sys
 from pathlib import Path
 import pandas as pd
