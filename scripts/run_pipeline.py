@@ -62,7 +62,8 @@ class Stage:
 
 def build_plan(version: str, device: str, cycle: int, skip_retro: bool,
                zoo_tag: str = "core", zoo_repeats: int = 10, rl_algo: str = "dap",
-               stack_metric: str = "spearman") -> list[Stage]:
+               stack_metric: str = "spearman",
+               sample_seed: int | None = None) -> list[Stage]:
     S = lambda *a: [str(x) for x in a]
     stage3 = "scripts/run_stage3_transfer.py"
     stage4 = "scripts/run_stage4_uq.py"
@@ -196,6 +197,15 @@ def build_plan(version: str, device: str, cycle: int, skip_retro: bool,
 
         Stage("cycle", S(PY, "scripts/run_stage8_cycle.py", "prepare", "--cycle", cycle,
                          "--device", device, "--version", version,
+                         # run_stage8_cycle.py defaults --sample-seed to --cycle, which is
+                         # fine for one run and wrong for a comparison. Running the eight
+                         # RL objectives through the staged chain needs a distinct --cycle
+                         # each, or they all write runs/cycle_02 and overwrite one another;
+                         # that would also hand each objective a different pool-sampling
+                         # seed, so a difference between two objectives could be sampling
+                         # noise rather than the policy. Pinning the seed here keeps the
+                         # only difference between the eight runs the thing under test.
+                         *(["--sample-seed", sample_seed] if sample_seed is not None else []),
                          *(["--skip-retro"] if skip_retro else []),
                          # The pool is sampled from the trained agent, which is what
                          # `al.pool_size` has always claimed. Passing only --rl-csv fed
@@ -275,6 +285,12 @@ def main(argv=None) -> int:
                          "measurability-filtered table)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--cycle", type=int, default=2)
+    ap.add_argument("--sample-seed", type=int, default=None,
+                    help="pool-sampling seed for the cycle stage. run_stage8_cycle.py "
+                         "defaults it to --cycle, so comparing several RL objectives -- "
+                         "each of which needs its own --cycle to avoid overwriting "
+                         "runs/cycle_NN -- would otherwise vary the seed alongside the "
+                         "algorithm. Pin it to hold everything but the policy constant.")
     ap.add_argument("--config", default=None)
     ap.add_argument("--from", dest="from_stage", default=None)
     ap.add_argument("--to", dest="to_stage", default=None)
@@ -316,7 +332,8 @@ def main(argv=None) -> int:
     fp = dataset_fingerprint(proc, a.version)
     plan = build_plan(a.version, a.device, a.cycle, a.skip_retro,
                       zoo_tag=a.zoo_tag, zoo_repeats=a.zoo_repeats,
-                      rl_algo=a.rl_algo, stack_metric=a.stack_metric)
+                      rl_algo=a.rl_algo, stack_metric=a.stack_metric,
+                      sample_seed=a.sample_seed)
     # The `data` stage is SELF-CERTIFYING: its output carries a .sha256 sidecar written by
     # `save_locked`, and that digest is the very fingerprint downstream stages are compared
     # against. If the table verifies, the stage is current by definition -- no state record
