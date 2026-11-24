@@ -237,9 +237,19 @@ def main():
             pool = pool_from_reinvent(a.rl_csv).sample(frac=1.0, random_state=seed)
         require_pool_size(len(pool), want, a.allow_small_pool)
         pool = pool.iloc[:want]
+        # FUNNEL COUNTS. Every step below throws molecules away, and until now none of
+        # them said how many. A stage that ran for four hours and produced nothing was
+        # indistinguishable, from the log, from a stage that was still working -- the
+        # only output between "sampled" and the end was silence. Each survivor count is
+        # printed as it happens.
         std = _standardize_pool(list(pool), jobs=a.std_jobs); rows = [r for r in std if r]
+        print(f"[stage8] funnel: {len(pool):,} sampled -> {len(rows):,} standardized "
+              f"({len(pool) - len(rows):,} unparseable or outside the med-chem filter)",
+              flush=True)
         P = pd.DataFrame(rows).drop_duplicates("inchikey_block1")
+        print(f"[stage8] funnel: {len(P):,} unique by InChIKey block", flush=True)
         P = P[~P.inchikey_block1.isin(set(C.df.inchikey_block1))].reset_index(drop=True)      # vs ChEMBL + in-house
+        print(f"[stage8] funnel: {len(P):,} novel vs ChEMBL + in-house", flush=True)
         import json
         centres = C.runs / "reward_centres.json"
         if centres.exists():
@@ -249,6 +259,8 @@ def main():
         tpp_mask, tpp_report = tpp_select(P, cfg.get("tpp"))
         if tpp_report["skipped"]: raise ValueError(f"Missing TPP endpoints: {tpp_report['skipped']}")
         P = P[(P.R > 0) & tpp_mask].reset_index(drop=True)                                                 # I_hard(x) = 1
+        print(f"[stage8] funnel: {len(P):,} passed the hard gate (R > 0 and TPP)",
+              flush=True)
         if P.empty:
             P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
             P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)
@@ -257,7 +269,14 @@ def main():
         # cross-architecture audit: D-MPNN ensemble vs Tanimoto GP
         tr = C.tnk1_rows(C.dev_keys, censored=False)
         gp = TanimotoGP(device=a.device).fit(morgan_count(tr.smiles), tr.pact.values)
+        print(f"[stage8] cross-architecture audit: scoring {len(P):,} candidates with "
+              f"the Tanimoto GP", flush=True)
+        # Batched inside TanimotoGP.predict: an ExactGP builds the full joint posterior
+        # over whatever it is given, so one pass over ~117k candidates asked for a
+        # 117,000^2 covariance block and died with "Tried to allocate 51.29 GiB".
         P["mu_gp"] = gp.predict(morgan_count(P.smiles)); P = P[(P.mu - P.mu_gp).abs() <= al["audit_tol"]].reset_index(drop=True)
+        print(f"[stage8] funnel: {len(P):,} agreed with the GP within "
+              f"{al['audit_tol']} log units", flush=True)
         if P.empty:
             P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
             P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)

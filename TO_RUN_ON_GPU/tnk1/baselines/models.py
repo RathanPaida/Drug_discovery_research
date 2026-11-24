@@ -83,10 +83,49 @@ class TanimotoGP:
         self.model.eval(); self.lik.eval(); self.gp = gp
         return self
 
-    def predict(self, X, return_std=False, include_noise=False):
+    # Test points per forward pass. An ExactGP in eval mode builds the FULL joint
+    # posterior over the batch it is handed, so the kernel materialises an
+    # (n_test x n_test) matrix -- see TanimotoKernel.forward, which is dense. Only the
+    # mean and the DIAGONAL of the covariance are ever read here, so the off-diagonal
+    # block is computed and thrown away.
+    #
+    # That was invisible while callers passed tens of molecules. Stage 8's
+    # cross-architecture audit now scores the whole candidate pool: at ~117k survivors
+    # the test-test block is 117000^2 floats and the stage died with
+    #   torch.OutOfMemoryError: Tried to allocate 51.29 GiB
+    # after 236 minutes of work, and because that stage is marked optional the job still
+    # reported exit 0 and the chain carried on with no candidates.
+    #
+    # 4096 keeps the block at 4096^2 x 4 B = 64 MB.
+    PREDICT_BATCH = 4096
+
+    def predict(self, X, return_std=False, include_noise=False, batch_size=None):
+        """Posterior mean (and optionally sd) at X, in batches.
+
+        Batching is EXACT for these two quantities, not an approximation: the posterior
+        mean at a test point and its marginal variance depend only on the training set
+        and that one point. Only the cross-covariance BETWEEN test points differs when
+        batched, and nothing here reads it. Pass batch_size=len(X) to force one pass.
+        """
+        import numpy as _np
         torch = self._t
+        n = len(X)
+        bs = int(batch_size or self.PREDICT_BATCH)
+        mus, sds = [], []
         with torch.no_grad(), self.gp.settings.fast_pred_var(False):
-            f = self.model(torch.tensor(X, dtype=torch.float32, device=self.device))
-            d = self.lik(f) if include_noise else f
-            mu, sd = d.mean.cpu().numpy(), d.variance.clamp_min(1e-12).sqrt().cpu().numpy()
-        return (mu, sd) if return_std else mu
+            for i in range(0, n, bs):
+                xb = torch.tensor(_np.asarray(X[i:i + bs]), dtype=torch.float32,
+                                  device=self.device)
+                f = self.model(xb)
+                d = self.lik(f) if include_noise else f
+                mus.append(d.mean.cpu().numpy())
+                if return_std:
+                    sds.append(d.variance.clamp_min(1e-12).sqrt().cpu().numpy())
+                del f, d, xb
+            if self.device != "cpu" and hasattr(torch, "cuda") and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        mu = _np.concatenate(mus) if mus else _np.empty(0, dtype=_np.float32)
+        if not return_std:
+            return mu
+        sd = _np.concatenate(sds) if sds else _np.empty(0, dtype=_np.float32)
+        return mu, sd
