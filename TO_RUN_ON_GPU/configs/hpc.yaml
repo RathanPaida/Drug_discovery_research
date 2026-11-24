@@ -65,6 +65,14 @@ data:
   kinase_table: data/raw/kinases.csv
   chembl_unlabelled_smiles: data/raw/chembl_drug_like.smi
   full_kinome: true
+  # Additional kinome tables unioned into the frozen table by Stage 1, on top of
+  # kinome_all_measurements_3.95M.parquet. Built by scripts/build_kinome_chembl37.py
+  # from the second acquisition drop's interim/kinome_raw_union.parquet. Stage 1
+  # dedupes across sources on (inchikey_block1, uniprot_id, standard_type), so the
+  # 90.6% compound overlap with the 3.95M store does not double-count anything.
+  # A listed file that is missing is a hard error, not a skip.
+  extra_kinome_parquets:
+  - kinome_chembl37.parquet
   desc_scaler_n: 200000
   standard_types:
   - IC50

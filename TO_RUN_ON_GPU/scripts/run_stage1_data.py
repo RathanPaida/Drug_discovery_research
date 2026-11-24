@@ -12,6 +12,7 @@ try:
 except ImportError:
     tqdm = lambda x, **k: x
 from tnk1.utils.common import load_config, save_locked, seed_everything
+from tnk1.utils.paths import resolve_path
 from tnk1.data import extract, activity, standardize, splits as sp
 
 
@@ -174,9 +175,40 @@ def main():
             raise FileNotFoundError(
                 f"data.full_kinome=true but {full_path} is absent. Place the file, or set "
                 f"data.full_kinome=false to fall back to {mt_path.name}.")
-        src_path = full_path if want_full else mt_path
 
-        if src_path.exists():
+        # MULTIPLE KINOME SOURCES.
+        #
+        # This used to read exactly one table. The second acquisition drop adds a
+        # ChEMBL-37 harvest, so the table is now a union of however many sources
+        # `data.extra_kinome_parquets` lists, each read through the same column
+        # picker and the same measurability filter as the primary one. A listed file
+        # that is absent is a hard error rather than a skip: a silently missing
+        # source is how a run ends up training on less data than its config claims.
+        #
+        # The sources OVERLAP -- 90.6% of the ChEMBL-37 compounds are already in the
+        # 3.95M store -- so the cross-source dedupe after the loop is not optional
+        # bookkeeping, it is what keeps one measurement from being counted twice
+        # with two different values.
+        kinome_sources = [full_path if want_full else mt_path]
+        for extra in (d.get("extra_kinome_parquets") or []):
+            p = Path(extra)
+            if not p.is_absolute():
+                p = features_dir / p if (features_dir / p).exists() else resolve_path(extra)
+            if not p.exists():
+                raise FileNotFoundError(
+                    f"data.extra_kinome_parquets lists {extra!r}, which resolves to "
+                    f"{p} and does not exist. Build it with\n"
+                    f"  python scripts/build_kinome_chembl37.py --out {p}\n"
+                    f"or remove the entry from the config.")
+            kinome_sources.append(p)
+        if len(kinome_sources) > 1:
+            print(f"Kinome sources ({len(kinome_sources)}):")
+            for p in kinome_sources:
+                print(f"  {p.name} ({p.stat().st_size/1e6:.0f} MB)")
+
+        for src_path in kinome_sources:
+            if not src_path.exists():
+                continue
             import pyarrow.parquet as pq
 
             def _pick(cols, cands, what, required=True):
@@ -272,6 +304,72 @@ def main():
 
         final = pd.concat(kinome_parts, ignore_index=True)
         print(f"Frame in memory: {final.memory_usage(deep=True).sum()/1e9:.2f} GB")
+
+    # ----------------------------------------------------------------------
+    # CROSS-SOURCE DEDUPE AND EMPTY-ROW DROP.
+    #
+    # Each source was already deduped internally by its own
+    # `aggregate_replicates`, on (inchikey_block1, uniprot_id, standard_type).
+    # Nothing deduped ACROSS sources, because until now there was only one.
+    # With the ChEMBL-37 harvest unioned in, 90.6% of its compounds also appear
+    # in the 3.95M store, so the same (compound, kinase, endpoint) cell can
+    # arrive twice carrying two different pActivity values from two different
+    # curations. Left alone, that row is sampled twice per epoch with
+    # contradictory labels, and `task_loss` averages the contradiction.
+    #
+    # Resolution order, applied in one stable sort:
+    #   1. exact (censored == 0) beats censored -- a bound is weaker evidence
+    #      than a measurement, so it must never displace one.
+    #   2. more replicates beats fewer -- n_rep is the count that survived the
+    #      replicate-range filter, so it is a direct measure of support.
+    #   3. tighter replicate spread beats looser.
+    # `keep="first"` after that sort therefore keeps the best-supported copy
+    # rather than whichever source happened to be listed first.
+    #
+    # The empty-row drop is separate and deliberately narrow. The measurability
+    # filter already removed non-finite and out-of-range pActivity; what it does
+    # not catch is a row whose IDENTITY is blank -- no InChIKey block, no SMILES,
+    # or no target. Those cannot be featurised or assigned to a task, and a blank
+    # key would collide with every other blank key in the dedupe above.
+    n_before = len(final)
+    ident = ["inchikey_block1", "uniprot_id", "smiles"]
+    blank = pd.Series(False, index=final.index)
+    for c in ident:
+        col = final[c].astype(str)
+        blank |= final[c].isna() | (col.str.strip() == "") | (col == "nan")
+    # np.isfinite on a Series can hand back a bare ndarray, so build the mask with an
+    # explicit index instead of relying on `|=` to align it positionally.
+    _pact = pd.to_numeric(final["pact"], errors="coerce").astype("float64")
+    blank |= pd.Series(~np.isfinite(_pact.to_numpy()), index=final.index)
+    if int(blank.sum()):
+        print(f"Dropping {int(blank.sum()):,} rows with a blank identity "
+              f"(inchikey/uniprot/smiles) or non-finite pact")
+        final = final[~blank]
+
+    key = ["inchikey_block1", "uniprot_id", "standard_type"]
+    n_pre_dedupe = len(final)
+    order = pd.DataFrame({
+        "censored": pd.to_numeric(final["censored"], errors="coerce").fillna(1),
+        "n_rep": -pd.to_numeric(final["n_rep"], errors="coerce").fillna(1),
+        "sigma_rep": pd.to_numeric(final["sigma_rep"], errors="coerce").fillna(0.0),
+    })
+    final = (final.assign(**{f"_o_{c}": order[c] for c in order})
+                  .sort_values([f"_o_{c}" for c in order], kind="stable"))
+    dup = final.duplicated(subset=key, keep="first")
+    if int(dup.sum()):
+        collided = final[final.duplicated(subset=key, keep=False)]
+        print(f"Cross-source dedupe on {tuple(key)}:")
+        print(f"  {n_pre_dedupe:,} rows -> {n_pre_dedupe - int(dup.sum()):,} "
+              f"({int(dup.sum()):,} duplicate cells resolved)")
+        if len(collided):
+            spread = (collided.groupby(key, observed=True)["pact"]
+                      .agg(lambda s: float(s.max() - s.min())))
+            print(f"  {len(spread):,} contested cells; disagreement between sources "
+                  f"median {spread.median():.2f}, 95th pct {spread.quantile(0.95):.2f}, "
+                  f"max {spread.max():.2f} log units")
+    final = final[~dup].drop(columns=[c for c in final.columns
+                                      if c.startswith("_o_")])
+    print(f"Kinome table after dedupe: {n_before:,} -> {len(final):,} rows")
 
     print(f"Total curated long records: {len(final):,}")
     print(final.groupby("uniprot_id").size().sort_values(ascending=False).head(10))

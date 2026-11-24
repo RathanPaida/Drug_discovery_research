@@ -18,6 +18,22 @@ ENV/
 data/raw/tnk1_data/
 **/_work/
 *.sqlite
+
+# Second acquisition drop (37 GB as downloaded: ChEMBL 37 SQLite, the 2.7M-molecule
+# corpus, AiZynth bundle). Only the derived, Stage-1-readable tables are tracked, and
+# those land in data/features/ which is already excluded above. The ChEMBL 37 database
+# and the tarball are BUILD inputs -- nothing on the GPU node reads them -- so they stay
+# off the cluster entirely. See docs/NEW_DATA_INTEGRATION.md for what gets promoted.
+NEW_DATA/
+
+# Inputs promoted out of that drop. kinome_raw_union.parquet (11.5 MB) is the source
+# scripts/build_kinome_chembl37.py re-aggregates, and the built table lands in
+# data/features/ which is already excluded. Both are data, not code: they travel to the
+# cluster by rsync, and their provenance is recorded in the .build.json sidecar.
+data/raw/kinome_raw_union.parquet
+**/data/raw/kinome_raw_union.parquet
+data/features/kinome_chembl37.parquet
+**/data/features/kinome_chembl37.parquet
 *.sqlite3
 *.zip
 *.tar.gz
