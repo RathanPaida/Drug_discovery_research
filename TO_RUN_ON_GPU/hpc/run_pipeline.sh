@@ -24,6 +24,21 @@ DRY=0
 for a in "$@"; do [ "$a" = "--dry-run" ] && DRY=1; done
 [ "${FROM:-}" = "--dry-run" ] && FROM=""
 
+# Default full run now executes the complete isolated campaign in one GPU lane.
+if [ "$MODE" = full ] && [ -z "$FROM" ]; then
+    export TNK1_CONFIG="$TNK1_ROOT/configs/hpc.yaml"
+    if [ "$DRY" = 1 ]; then
+        echo "sbatch hpc/submit_campaign.sh (26 models, 12 stackers, 10 fine-tunes, 8 RL algorithms)"
+        exit 0
+    fi
+    if ! tnk1_env_ready; then bash hpc/setup_env.sh || exit 1; fi
+    mkdir -p logs
+    campaign_opts=()
+    [ -n "${TNK1_SBATCH_ARGS:-}" ] && read -r -a campaign_opts <<< "$TNK1_SBATCH_ARGS"
+    sbatch "${campaign_opts[@]}" hpc/submit_campaign.sh
+    exit $?
+fi
+
 STAGES=" preflight baselines zoo stack taskselect transfer ens oof critic calibrate admet prior rl cycle selectivity compare ablate "
 case "$MODE" in smoke|fast|full) ;; *) echo "mode must be smoke|fast|full (got '$MODE')" >&2; exit 2 ;; esac
 if [ -n "$FROM" ]; then
@@ -58,19 +73,19 @@ tnk1_need_writable logs runs runs/pipeline data/processed || exit 1
 
 # ALREADY-QUEUED GUARD.
 #
-# The GPU lane (see `submit` below) serialises only the jobs of ONE invocation: it tracks
-# ids in a temp file created per run. A second `run_pipeline.sh` therefore starts a fresh
-# lane whose first GPU job has no dependency on the chain already queued, and the two
-# would run together -- 2 x shard:16 = 32, breaking the cap the lane exists to enforce.
-# Refuse instead, and say what to do about it.
+# The lane (see `submit` below) serialises only the jobs of ONE invocation: it tracks ids
+# in a temp file created per run. A second `run_pipeline.sh` therefore starts a fresh lane
+# whose first job has no dependency on the chain already queued, and the two would run
+# together -- 2 x shard:36 = 72 of the node's 94, breaking both caps the lane exists to
+# enforce. Refuse instead, and say what to do about it.
 if [ "$DRY" != 1 ]; then
     _mine="$(squeue -u "$USER" -h -o "%i %j %t" 2>/dev/null | grep -c "${TNK1_JOB_PREFIX}_" || true)"
     if [ "${_mine:-0}" -gt 0 ]; then
         echo "ERROR: you already have $_mine ${TNK1_JOB_PREFIX}_* job(s) queued or running." >&2
         squeue -u "$USER" -o "  %.7i %.16j %.2t %.8M %.20b" >&2
         echo >&2
-        echo "  Submitting another chain would start a second GPU lane, so two GPU jobs" >&2
-        echo "  could run at once and hold 2 x shard:16 = 32 shards." >&2
+        echo "  Submitting another chain would start a second lane, so two of our jobs" >&2
+        echo "  could run at once and hold 2 x shard:${TNK1_SHARDS:-36} of the node's 94." >&2
         echo >&2
         echo "  Wait for it, or:" >&2
         echo "    scancel -u $USER                       # drop the existing chain" >&2
@@ -82,13 +97,19 @@ if [ "$DRY" != 1 ]; then
 fi
 
 # One-time setup, before anything is queued (skipped once done).
-if ! tnk1_env_ready; then
+#
+# Guarded by DRY. `--dry-run` is advertised as "print the sbatch lines, queue nothing",
+# and the `full` path above honours that, but this resume path did not: on any machine
+# without a working env -- a laptop, say -- `run_pipeline.sh full ens --dry-run` would
+# move envs/tnk1 aside to envs/tnk1.stale.<timestamp> and start a ~6 GB conda build
+# before printing a single sbatch line. A dry run must not touch the filesystem.
+if [ "$DRY" != 1 ] && ! tnk1_env_ready; then
     echo ">> python env not ready -- building it now (needs internet, ~10 min)"
     bash hpc/setup_env.sh || exit 1
 fi
-activate_env
+[ "$DRY" = 1 ] || activate_env
 
-if ! tnk1_data_ready; then
+if [ "$DRY" != 1 ] && ! tnk1_data_ready; then
     echo "ERROR: the feature store does not verify against data/features/manifest.json." >&2
     echo "  Re-upload data/features/ -- a truncated transfer is the usual cause." >&2
     echo "  Detail:  python scripts/run_stage0_check.py --version ${TNK1_VERSION:-v3} --strict" >&2
@@ -98,6 +119,9 @@ fi
 echo "=============================================================="
 echo " mode      : $MODE"
 echo " config    : $TNK1_CONFIG"
+# Needs the env's python, so a dry run on a machine without one skips it rather than
+# failing on `python` not existing.
+if [ "$DRY" != 1 ]; then
 python - <<'EOF'
 import os, yaml
 c = yaml.safe_load(open(os.environ["TNK1_CONFIG"]))
@@ -105,7 +129,9 @@ print(f" rows      : {c['data']['max_kinome_rows'] or 'all 1,103,498'}")
 print(f" members   : ens={c['uq']['n_members']}  oof={c['uq']['oof_members']}"
       f"  -> {c['uq']['n_members'] + 5 * c['uq']['oof_members']} kinome passes")
 EOF
-echo " gpu lanes : ${TNK1_GPU_LANES:-1} concurrent x shard:16 = max $(( ${TNK1_GPU_LANES:-1} * 16 )) shards held"
+fi
+echo " lanes     : ${TNK1_LANES:-${TNK1_GPU_LANES:-1}} job(s) at a time (CPU and GPU alike)"
+echo " shards    : max $(( ${TNK1_LANES:-${TNK1_GPU_LANES:-1}} * ${TNK1_SHARDS:-36} )) of 94 held at any instant (shard:${TNK1_SHARDS:-36} per GPU job)"
 echo " root      : $TNK1_ROOT"
 echo " env       : $ENV_DIR"
 echo "=============================================================="
@@ -114,50 +140,73 @@ echo
 extra_sbatch=()
 [ -n "${TNK1_SBATCH_ARGS:-}" ] && read -r -a extra_sbatch <<< "$TNK1_SBATCH_ARGS"
 
-# GPU CONCURRENCY LANE.
+# EXECUTION LANE: ONE JOB AT A TIME, ACROSS THE WHOLE CHAIN.
 #
-# Each GPU job asks for shard:16, and the logical DAG makes several eligible at once (ens,
-# ablate, admet and prior all become ready after preflight). Left alone that held 48-64 of
-# the node's 94 shards and 64 of its 128 CPUs on a machine shared with other users.
-# TNK1_GPU_LANES caps how many GPU jobs may be in flight; at the default 1, at most
-# 16 shards are ever held.
+# Two separate caps are being enforced here, and they are not the same thing:
 #
-# Implemented by making the Nth GPU job wait on the (N - lanes)th. The ids live in a FIFO
+#   1. At most TNK1_SHARDS (36) GPU shards are held at any instant.
+#   2. At most TNK1_LANES (1) of OUR jobs is running at any instant.
+#
+# (1) alone is not enough, and (2) alone is not enough either. This lane used to apply
+# to GPU jobs only, which left the CPU stages -- preflight, baselines, zoo, stack,
+# critic, taskselect -- free to run alongside a GPU stage, because they request no GRES
+# and so never queued behind it. That is still several of our jobs resident at once on a
+# node we share, each holding 16 CPUs of the node's 128. With the lane now covering
+# every job regardless of kind, the chain is strictly serial: exactly one dug_* job runs
+# at a time, and it may hold the entire 36-shard budget.
+#
+# The cost is real. `ens`, `admet`, `prior` and `ablate` are all eligible after
+# preflight and would previously have overlapped; now they queue. The submission order
+# below is therefore the schedule, and it is ordered critical-path-first for that reason.
+#
+# Implemented by making the Nth job wait on the (N - lanes)th. The ids live in a FIFO
 # FILE rather than a shell variable because `submit` is called inside $( ), which runs in
 # a subshell -- a variable assigned in there would not survive the call.
 #
-# The lane dependency is `afterany`, not `afterok`: it exists only to order jobs, so a
-# failed stage must not cascade-cancel later unrelated GPU stages. The genuine
-# prerequisites stay in the `afterok` clause, and Slurm ANDs the two with a comma.
-GPU_LANES="${TNK1_GPU_LANES:-1}"
-GPU_FIFO="$(mktemp)"
-trap 'rm -f "$GPU_FIFO"' EXIT
+# The lane dependency is `afterany`, not `afterok`: it exists only to ORDER jobs, so a
+# failed stage must not cascade-cancel every later stage that does not actually depend on
+# it. The genuine prerequisites stay in the `afterok` clause, and Slurm ANDs the two with
+# a comma.
+LANES="${TNK1_LANES:-${TNK1_GPU_LANES:-1}}"
+SHARDS="${TNK1_SHARDS:-36}"
+if [ "$SHARDS" -gt 36 ] 2>/dev/null; then
+    echo "ERROR: TNK1_SHARDS=$SHARDS exceeds the 36-shard budget for this project." >&2
+    echo "  36 is the agreed ceiling on shards held at any instant. Lower it, or if the" >&2
+    echo "  allocation really did change, change the ceiling in hpc/run_pipeline.sh and" >&2
+    echo "  the #SBATCH defaults in hpc/submit_gpu.sh and hpc/submit_campaign.sh too." >&2
+    exit 1
+fi
+LANE_FIFO="$(mktemp)"
+trap 'rm -f "$LANE_FIFO"' EXIT
 
 submit() {  # submit <cpu|gpu> <name> <deps> <stage>
     local kind="$1" name="$2" deps="$3" stage="$4"
     local opts=(--parsable --job-name="${TNK1_JOB_PREFIX}_$name" ${extra_sbatch[@]+"${extra_sbatch[@]}"})
+    # Every GPU job is pinned to the shard budget from one variable, so the cap cannot
+    # drift between here and the #SBATCH default inside submit_gpu.sh.
+    [ "$kind" = gpu ] && opts+=(--gres="shard:$SHARDS")
     # Drop empty dependency ids (stages skipped by the resume argument).
     local clean="" id
     for id in ${deps//:/ }; do [ -n "$id" ] && clean="$clean:$id"; done
     local dep="" lane_prev="" n
     [ -n "$clean" ] && dep="afterok$clean"
-    if [ "$kind" = gpu ] && [ "$GPU_LANES" -ge 1 ]; then
-        n=$(wc -l < "$GPU_FIFO" 2>/dev/null || echo 0)
-        if [ "$n" -ge "$GPU_LANES" ]; then
-            lane_prev="$(sed -n "$((n - GPU_LANES + 1))p" "$GPU_FIFO")"
+    if [ "$LANES" -ge 1 ]; then
+        n=$(wc -l < "$LANE_FIFO" 2>/dev/null || echo 0)
+        if [ "$n" -ge "$LANES" ]; then
+            lane_prev="$(sed -n "$((n - LANES + 1))p" "$LANE_FIFO")"
             [ -n "$lane_prev" ] && dep="${dep:+$dep,}afterany:$lane_prev"
         fi
     fi
     [ -n "$dep" ] && opts+=(--dependency="$dep" --kill-on-invalid-dep=yes)
     if [ "$DRY" = 1 ]; then
         echo "sbatch ${opts[*]} hpc/submit_$kind.sh $stage" >&2
-        [ "$kind" = gpu ] && echo "DRY_$name" >> "$GPU_FIFO"
+        echo "DRY_$name" >> "$LANE_FIFO"
         echo "DRY_$name"; return 0
     fi
     local jid
     jid="$(sbatch "${opts[@]}" "hpc/submit_$kind.sh" "$stage")" || {
         echo "submit failed: $name" >&2; exit 1; }
-    [ "$kind" = gpu ] && echo "$jid" >> "$GPU_FIFO"
+    echo "$jid" >> "$LANE_FIFO"
     printf '  %-13s job %-9s %s%s\n' "$stage" "$jid" "${clean:+after$clean}" \
            "${lane_prev:+ [lane after $lane_prev]}" >&2
     echo "$jid"
@@ -190,8 +239,8 @@ want() {  # true from $FROM onwards
 #           (Spearman 0.264 vs 0.641) and that was measured on ONE split.
 #   cycle   turns the generator's output into a selected compound set. Without it the run
 #           ends at "a trained agent" rather than "these molecules".
-# SUBMISSION ORDER MATTERS NOW. With TNK1_GPU_LANES=1 the GPU jobs run strictly in the
-# order they are submitted, so this sequence is the schedule. The critical path to a
+# SUBMISSION ORDER MATTERS NOW. With TNK1_LANES=1 every job -- CPU and GPU alike -- runs
+# strictly in the order it is submitted, so this sequence is the schedule. The critical path to a
 # result -- ens -> oof -> calibrate -> admet -> prior -> rl -> cycle -- goes first.
 #
 # `ablate` is submitted LAST despite having no prerequisite beyond preflight: it is

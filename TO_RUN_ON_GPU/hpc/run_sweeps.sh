@@ -16,11 +16,15 @@
 # no state. Forcing them through that lane would serialise 8 RL runs that could overlap,
 # and putting them in the same chain would make an unrelated failure cancel them.
 #
-# So: Slurm job ARRAYS with a `%` concurrency cap, which Slurm enforces itself. The GPU
-# cap defaults to 2 concurrent tasks x shard:16 = 32 shards, which is deliberately higher
-# than run_pipeline.sh's single lane because a sweep is a one-off and the node is
-# otherwise idle while it runs. Lower it with TNK1_ARRAY_GPU_CONCURRENCY=1 if someone
-# else is using the machine.
+# So: Slurm job ARRAYS with a `%` concurrency cap, which Slurm enforces itself.
+#
+# BOTH caps default to 1 concurrent task. They used to default to 2 GPU / 4 CPU on the
+# reasoning that a sweep is a one-off and the node is idle anyway -- but the budget for
+# this project is one job at a time holding at most 36 shards, and an array task is a
+# job. Two concurrent GPU tasks is two of our jobs resident, which is the thing the cap
+# forbids, and 4 concurrent CPU tasks held 32 of the node's 128 cores. Raising either
+# past 1 breaks the agreement, so they are not raised here; TNK1_SHARDS still sizes the
+# per-task shard request.
 #
 # READ THE RESULTS WITH:
 #   python scripts/compare_sweeps.py                    # the summary table
@@ -40,8 +44,9 @@ case "$WHAT" in models|reps|rl|stack|all) ;;
   *) echo "usage: bash hpc/run_sweeps.sh <models|reps|rl|stack|all> [--dry-run]" >&2; exit 2 ;;
 esac
 
-GPU_CONC="${TNK1_ARRAY_GPU_CONCURRENCY:-2}"
-CPU_CONC="${TNK1_ARRAY_CPU_CONCURRENCY:-4}"
+GPU_CONC="${TNK1_ARRAY_GPU_CONCURRENCY:-1}"
+CPU_CONC="${TNK1_ARRAY_CPU_CONCURRENCY:-1}"
+SHARDS="${TNK1_SHARDS:-36}"
 VERSION="${TNK1_VERSION:-v3}"
 export TNK1_VERSION="$VERSION"
 
@@ -104,7 +109,7 @@ submit_array() {  # submit_array <cpu|gpu> <name> <deps> <range%conc> <sweep>
     local kind="$1" name="$2" deps="$3" range="$4" sweep="$5"
     local opts=(--parsable --job-name="${TNK1_JOB_PREFIX}_$name" --array="$range"
                 ${extra_sbatch[@]+"${extra_sbatch[@]}"})
-    [ "$kind" = gpu ] && opts+=(--gres=shard:16)
+    [ "$kind" = gpu ] && opts+=(--gres="shard:$SHARDS")
     local clean="" id
     for id in ${deps//:/ }; do [ -n "$id" ] && clean="$clean:$id"; done
     [ -n "$clean" ] && opts+=(--dependency="afterok$clean" --kill-on-invalid-dep=yes)
