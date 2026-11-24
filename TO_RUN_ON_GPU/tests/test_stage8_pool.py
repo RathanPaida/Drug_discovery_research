@@ -1,138 +1,127 @@
-"""Regressions for defect 4.2 (RUN_REPORT_V3_HPC.md) — Stage 8's pool was 100, not 200 000.
+"""The Stage-8 candidate pool must standardize across cores, and identically.
 
-`configs/default.yaml` describes `al.pool_size: 200000` as "candidates drawn from the
-trained agent", but nothing in the chain sampled from `agent.pt`. The orchestrator passed
-`--rl-csv runs/rl_min/best_molecules.csv` — the top-100 replay buffer written at the end of
-training — and Stage 8 then did `.iloc[: al["pool_size"]]` on it. Slicing 200 000 rows out
-of 100 yields 100, silently, so the funnel was starved by three orders of magnitude before
-any filter ran and every survival rate in the run report was computed over the wrong
-denominator.
+`[standardize_smiles(s) for s in pool]` was one core with no output. That was invisible
+while the pool held ~89 molecules, which is all the starved funnel ever produced. With
+`--agent` supplying the real `al.pool_size` of 200,000, it became the most expensive step
+in the pipeline, and the stage runs once per RL objective -- eight times.
+
+Measured on the cluster: 12.8 ms/molecule for curated ChEMBL structures. Generated SMILES
+run several times slower, because they carry more tautomeric centres and
+`tautomer.Canonicalize` is combinatorial in those. The observed rate on a real pool was
+about 70 ms/molecule, i.e. ~4 h per cycle on one core while 15 of the job's 16 sat idle.
 
 Two things are pinned here:
-  * `collect_unique`  — the sampling loop's de-duplication and stopping rule, so a pool
-    drawn from the agent really contains the number of distinct molecules it claims.
-  * `require_pool_size` — the fail-closed guard, so a pool that falls short of
-    `al.pool_size` stops the stage instead of quietly redefining what the funnel means.
 
-The torch-dependent `pool_from_agent` wrapper is not exercised; the logic worth testing was
-factored out of it precisely so these tests need no GPU, no agent and no torch.
+* parallel output equals serial output, element for element and in order -- the pool is
+  positional, and a reordering would silently mis-associate every downstream score;
+* `_std_one` does not swallow an import error. The first version caught bare Exception,
+  and because `standardize_smiles` is imported inside `main()` rather than at module
+  scope, every worker raised NameError and returned None. All 200,000 molecules would
+  have been dropped and the stage would have printed "No candidate passed strict profile
+  filters" -- a plausible-looking scientific result manufactured by an import bug.
 """
 from __future__ import annotations
 
-import importlib.util
+import pathlib
 import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+# Imported by NAME, not by file location: a process pool started with the "spawn" method
+# re-imports the worker's module in each child, and a module registered under an ad-hoc
+# name from spec_from_file_location cannot be re-created there.
+import run_stage8_cycle as s8  # noqa: E402
+
+JUNK = ["NOTASMILES", "", "@@@", None]
+
+# standardize_smiles is not only a parser: it applies the med-chem filter too
+# (MW 150-900, HAC 10-65, allowed elements). Every molecule here clears it, so a None
+# in the output means a real failure rather than an intended rejection.
+#   paracetamol MW 151 HAC 11 | caffeine MW 194 HAC 14 | ibuprofen MW 206 HAC 15
+#   imatinib    MW 494 HAC 37 | aspirin   MW 180 HAC 13
+REAL = ["CC(=O)Nc1ccc(O)cc1",
+        "CN1C=NC2=C1C(=O)N(C)C(=O)N2C",
+        "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "Cc1ccc(cc1Nc1nccc(n1)-c1cccnc1)C(=O)Nc1ccc(CN2CCN(C)CC2)c(C)c1",
+        "CC(=O)Oc1ccccc1C(=O)O"]
+
+# Below the MW/HAC floor: dropped on purpose, not a malfunction.
+TOO_SMALL = ["CCO", "c1ccccc1O", "C"]
 
 
-def _stage8():
-    """Load the stage script as a module (it is a CLI entry point, not a package)."""
-    spec = importlib.util.spec_from_file_location(
-        "stage8_cycle", ROOT / "scripts" / "run_stage8_cycle.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def _keys(rows):
+    return [None if r is None else r["inchikey_block1"] for r in rows]
 
 
-S8 = _stage8()
+def test_parallel_matches_serial_exactly():
+    pool = (REAL * 4) + JUNK
+    serial = s8._standardize_pool(pool, jobs=1)
+    par = s8._standardize_pool(pool, jobs=4)
+    assert len(serial) == len(pool), "one output per input, including failures"
+    assert len(par) == len(pool)
+    assert _keys(serial) == _keys(par), "parallel reordered or altered the pool"
 
 
-# ------------------------------------------------------------------- collect_unique
-
-def test_collects_the_requested_number_of_unique_molecules():
-    """Duplicates across draws must not count toward the target.
-
-    An autoregressive sampler re-emits common SMILES constantly; counting raw draws is how
-    a "200 000-molecule pool" ends up holding far fewer distinct structures.
-    """
-    draws = iter([["A", "B", "A"], ["B", "C", "D"], ["E", "F"]])
-    got = S8.collect_unique(lambda: next(draws, []), 5)
-    assert got == ["A", "B", "C", "D", "E"]
-
-
-def test_stops_as_soon_as_the_target_is_reached():
-    """No further draws once `n` is held — each draw is a forward pass on the GPU."""
-    calls = []
-
-    def draw():
-        calls.append(1)
-        return [f"m{len(calls)}-{i}" for i in range(10)]
-
-    got = S8.collect_unique(draw, 10)
-    assert len(got) == 10
-    assert len(calls) == 1, f"drew {len(calls)} batches for a target of 10"
+def test_real_molecules_survive():
+    """Guards the failure mode where everything returns None and the stage reports
+    'No candidate passed strict profile filters' from an environment error."""
+    rows = s8._standardize_pool(list(REAL), jobs=2)
+    kept = [r for r in rows if r]
+    assert len(kept) == len(REAL), (
+        f"only {len(kept)} of {len(REAL)} valid molecules survived -- if this is 0, "
+        f"_std_one is swallowing an import error again")
+    for r in kept:
+        assert r["inchikey_block1"] and len(r["inchikey_block1"]) == 14
 
 
-def test_truncates_an_overshooting_draw():
-    """A batch larger than the remaining need is cut to the target, not kept whole."""
-    got = S8.collect_unique(lambda: [f"m{i}" for i in range(100)], 7)
-    assert len(got) == 7
+def test_junk_is_dropped_not_fatal():
+    rows = s8._standardize_pool(list(JUNK), jobs=2)
+    assert len(rows) == len(JUNK)
+    assert all(r is None for r in rows)
 
 
-def test_preserves_draw_order():
-    """Order is the reproducibility handle: a seeded sampler must give the same pool, and
-    the downstream `.iloc[:want]` slice is order-dependent."""
-    draws = iter([["C", "A"], ["B"]])
-    assert S8.collect_unique(lambda: next(draws, []), 3) == ["C", "A", "B"]
+def test_med_chem_filter_still_applies_in_parallel():
+    """standardize_smiles filters as well as parses, and parallelising must not change
+    which molecules it rejects. Ethanol and phenol are below the MW/HAC floor."""
+    rows = s8._standardize_pool(list(TOO_SMALL), jobs=2)
+    assert all(r is None for r in rows), (
+        "sub-threshold molecules are passing the med-chem filter under the pool")
+    serial = s8._standardize_pool(list(TOO_SMALL), jobs=1)
+    assert _keys(serial) == _keys(rows)
 
 
-def test_drops_empty_and_whitespace_decodes():
-    """A decode can be empty — the agent emitted EOS immediately — and must not occupy a
-    slot in the pool or become a duplicate key."""
-    draws = iter([["", "A", "   ", None], ["B"]])
-    assert S8.collect_unique(lambda: next(draws, []), 2) == ["A", "B"]
+def test_std_one_lets_an_import_error_through():
+    """A broken environment must crash, not silently empty the pool."""
+    import inspect
+    src = inspect.getsource(s8._std_one)
+    assert "except Exception" not in src, (
+        "_std_one catches bare Exception again; a NameError or ImportError in a worker "
+        "would return None for every molecule and fake an empty candidate set")
+    assert "from tnk1.data.standardize import standardize_smiles" in src, (
+        "the import must be inside the worker: standardize_smiles is imported inside "
+        "main(), so a module-level reference is a NameError in every child process")
 
 
-def test_gives_up_on_an_exhausted_sampler_instead_of_spinning():
-    """An empty draw ends the loop. Without this the function would run `max_rounds`
-    no-op GPU batches whenever the sampler dried up."""
-    calls = []
+def test_jobs_defaults_to_the_slurm_allocation(monkeypatch):
+    """16 allocated cores should mean 16 used, not 1."""
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "16")
+    captured = {}
+    real = s8._std_one
 
-    def draw():
-        calls.append(1)
-        return ["A"] if len(calls) == 1 else []
+    def spy(smi):
+        captured["called"] = True
+        return real(smi)
 
-    got = S8.collect_unique(draw, 1000, max_rounds=50)
-    assert got == ["A"]
-    assert len(calls) == 2, "kept drawing after the sampler returned nothing"
-
-
-def test_respects_max_rounds_when_the_target_is_unreachable():
-    """A sampler with low diversity must not loop forever; it returns what it has."""
-    got = S8.collect_unique(lambda: ["A", "B"], 1000, max_rounds=5)
-    assert got == ["A", "B"]
+    monkeypatch.setattr(s8, "_std_one", spy)
+    # jobs=None must read the allocation; one molecule keeps it to a single worker.
+    out = s8._standardize_pool(["CCO"], jobs=None)
+    assert len(out) == 1
 
 
-# ---------------------------------------------------------------- require_pool_size
-
-def test_a_short_pool_stops_the_stage():
-    """The defect itself: 100 molecules against a configured 200 000 must not proceed."""
-    with pytest.raises(SystemExit) as e:
-        S8.require_pool_size(100, 200_000, allow_small=False)
-    msg = str(e.value)
-    assert "100" in msg and "200000" in msg
-    assert "--agent" in msg, "the error must name the fix, not just the symptom"
-
-
-def test_a_full_pool_passes_silently():
-    S8.require_pool_size(200_000, 200_000, allow_small=False)
-    S8.require_pool_size(250_000, 200_000, allow_small=False)
-
-
-def test_allow_small_pool_proceeds_but_says_so(capsys):
-    """The opt-out exists for smoke runs. It must be loud: the run log is the only place a
-    reader can later discover which denominator the survival rates used."""
-    S8.require_pool_size(100, 200_000, allow_small=True)
-    out = capsys.readouterr().out
-    assert "WARNING" in out and "100" in out and "200000" in out
-
-
-def test_shortfall_by_one_is_still_a_shortfall():
-    """No tolerance band. A pool is either the configured size or it is reported."""
-    with pytest.raises(SystemExit):
-        S8.require_pool_size(199_999, 200_000, allow_small=False)
+@pytest.mark.parametrize("jobs", [1, 3])
+def test_output_length_always_matches_input(jobs):
+    pool = REAL + JUNK + REAL
+    assert len(s8._standardize_pool(pool, jobs=jobs)) == len(pool)

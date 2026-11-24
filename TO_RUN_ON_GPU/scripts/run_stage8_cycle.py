@@ -68,6 +68,87 @@ def pool_from_agent(agent_path, vocab_path, n, device="cuda", seed=0, batch=4096
     return pd.Series(smis)
 
 
+def _std_one(smi):
+    """Module-level so it can be pickled for a process pool.
+
+    The import is inside the function on purpose: `standardize_smiles` is imported
+    inside `main()`, so it is NOT in this module's namespace, and a module-level
+    reference raises NameError in every worker. Catching that would have returned None
+    for all 200,000 molecules and the stage would have reported "No candidate passed
+    strict profile filters" -- a real-looking scientific result produced by an import
+    error. Only the molecule-level failure is caught, and the import is left to raise.
+    """
+    from tnk1.data.standardize import standardize_smiles
+    try:
+        return standardize_smiles(smi)
+    except (ValueError, RuntimeError, AttributeError, TypeError):
+        # one unparseable structure, not a broken environment
+        return None
+
+
+def _standardize_pool(pool, jobs=None, chunk=256):
+    """Standardize the candidate pool across cores, with progress.
+
+    This was `[standardize_smiles(s) for s in pool]` -- one core, no output. It was
+    invisible while the pool was ~89 molecules, which is all the starved funnel ever
+    produced. Now that `--agent` supplies the real `al.pool_size` (200,000), it is the
+    single most expensive step in the stage and the stage runs eight times, once per RL
+    objective.
+
+    Measured on this node: 12.8 ms/molecule for curated ChEMBL structures, but RL output
+    runs several times slower -- generated SMILES carry more tautomeric centres and
+    `tautomer.Canonicalize` is combinatorial in those. At ~70 ms/molecule a 200,000
+    pool is ~4 hours on one core, so the eight cycles would spend well over a day inside
+    this one list comprehension while 15 of the job's 16 cores sat idle.
+
+    Progress is printed every `chunk*40` molecules because the old silence made a slow
+    run indistinguishable from a hang -- there was no way to tell, from outside, whether
+    four hours meant "nearly done" or "deadlocked".
+    """
+    import os
+    import time
+    n = len(pool)
+    if jobs is None:
+        jobs = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
+    jobs = max(1, min(jobs, n))
+    t0 = time.time()
+    print(f"[stage8] standardizing {n:,} pooled molecules on {jobs} core(s)", flush=True)
+
+    def _report(done):
+        el = time.time() - t0
+        rate = done / el if el > 0 else 0
+        eta = (n - done) / rate if rate > 0 else float("nan")
+        print(f"[stage8]   standardized {done:,}/{n:,} "
+              f"({el/60:.1f} min elapsed, {rate:.0f}/s, ~{eta/60:.1f} min left)",
+              flush=True)
+
+    if jobs == 1:
+        out = []
+        for i, s in enumerate(pool, 1):
+            out.append(_std_one(s))
+            if i % (chunk * 40) == 0:
+                _report(i)
+        _report(n)
+        return out
+
+    import multiprocessing as mp
+    try:
+        with mp.Pool(jobs) as p:
+            out = []
+            for i, r in enumerate(p.imap(_std_one, pool, chunksize=chunk), 1):
+                out.append(r)
+                if i % (chunk * 40) == 0:
+                    _report(i)
+    except Exception as e:
+        # A pool failure must not lose the stage; fall back rather than crash after the
+        # expensive sampling step that produced this pool.
+        print(f"[stage8] WARNING process pool failed ({type(e).__name__}: {e}); "
+              f"falling back to one core", flush=True)
+        return _standardize_pool(pool, jobs=1, chunk=chunk)
+    _report(n)
+    return out
+
+
 def require_pool_size(got, want, allow_small):
     """Fail-closed on a pool that is nowhere near the configured size.
 
@@ -100,6 +181,10 @@ def main():
     ap.add_argument("--sample-seed", type=int, default=None, help="default: --cycle")
     ap.add_argument("--allow-small-pool", action="store_true",
                     help="proceed when the pool is smaller than al.pool_size (smoke runs)")
+    ap.add_argument("--std-jobs", type=int, default=None,
+                    help="cores for standardizing the pool (default: SLURM_CPUS_PER_TASK, "
+                         "else os.cpu_count). 1 restores the old serial behaviour, which "
+                         "on a 200k pool of generated molecules is about four hours.")
     ap.add_argument("--aizynth-config", default=None,
                     help="default: <repo>/configs/aizynth.yml")
     # Retrosynthetic feasibility FILTERS candidates; it feeds no model. Skipping changes
@@ -152,7 +237,7 @@ def main():
             pool = pool_from_reinvent(a.rl_csv).sample(frac=1.0, random_state=seed)
         require_pool_size(len(pool), want, a.allow_small_pool)
         pool = pool.iloc[:want]
-        std = [standardize_smiles(s) for s in pool]; rows = [r for r in std if r]
+        std = _standardize_pool(list(pool), jobs=a.std_jobs); rows = [r for r in std if r]
         P = pd.DataFrame(rows).drop_duplicates("inchikey_block1")
         P = P[~P.inchikey_block1.isin(set(C.df.inchikey_block1))].reset_index(drop=True)      # vs ChEMBL + in-house
         import json
