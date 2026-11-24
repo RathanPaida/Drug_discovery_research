@@ -134,7 +134,64 @@ pass because it is not a drop-in:
 Worth doing as its own change, with its own regression tests, rather than smuggled into a
 data merge.
 
-## 7. Rebuilding
+## 7. The v4 result — and what it revealed about v3
+
+```
+kinome_long_v4.parquet   sha256 8fba70ebb270a2f1ae65634173732cf2e5186837eef740241f3a3a2400b1fe07
+756,714 rows | 358,210 compounds | 467 kinases | 558,314 exact | 198,400 censored
+```
+
+| | v3 | v4 |
+| :--- | ---: | ---: |
+| rows | 1,103,498 | 756,714 |
+| **distinct (compound, kinase, endpoint) cells** | **704,375** | **756,714** |
+| rows sitting in a duplicated cell | **593,214 (53.8%)** | **0** |
+| compounds | 331,620 | 358,210 |
+| kinases | 448 | 467 |
+
+Rows per source in v4: CHEMBL 522,416 · **CHEMBL37 106,673** · BINDINGDB 75,764 ·
+PUBCHEM 50,035 · DAVIS 1,056 · IUPHAR 770.
+
+**v4 has fewer rows than v3 and strictly more data.** The row count fell because v3 was
+double-counting, not because anything was lost:
+
+- **53.8% of v3's rows sat in a duplicated `(compound, kinase, endpoint)` cell.** Only
+  704,375 of its 1,103,498 rows were distinct cells. Stage 1 formatted the 3.95M store's
+  per-measurement rows straight into the frozen table without aggregating them, so the
+  same cell appeared repeatedly.
+- In **55,087** of those cells the copies **disagree by more than 0.5 log units** — within-cell
+  spread 95th percentile **2.32**, max **8.38** log units. The model was shown the same
+  compound-kinase pair with contradictory labels and `task_loss` averaged the
+  contradiction.
+- Cell-for-cell, v4 **gains 52,345** cells and **loses 2,558**. The losses are deliberate:
+  cells whose exact replicates spanned more than `replicate_range_max: 1.0` are dropped
+  by `replicate_policy: drop`, which is the configured behaviour and the same rule v3's
+  TNK1 rows went through.
+
+This is worth weighing against the v3 run report's two headline negatives — that the
+deep ensemble was the worst model in the repository (Spearman 0.501 vs Random Forest's
+0.686) and that its uncertainty was uninformative (error–uncertainty correlation
+**−0.021**). A table in which half the rows are duplicated cells, tens of thousands of
+them carrying mutually inconsistent labels, inflates ensemble variance without that
+variance tracking error — which is the exact shape of the reported defect. It does not
+make the negative result wrong, and the TNK1 scarcity (172 exact points) is untouched by
+any of this. But v3 was not a clean test of the architecture, and v4 is a cleaner one.
+
+Measured with:
+
+```bash
+python - <<'EOF'
+import pandas as pd
+K=["inchikey_block1","uniprot_id","standard_type"]
+v3=pd.read_parquet("data/processed/kinome_long_v3.parquet",columns=K+["pact"])
+d=v3.duplicated(subset=K,keep=False)
+print(f"{int(d.sum()):,} of {len(v3):,} rows are in a duplicated cell")
+g=v3[d].groupby(K,observed=True)["pact"]; rng=g.max()-g.min()
+print(f"cells disagreeing >0.5 log: {int((rng>0.5).sum()):,}  max spread {rng.max():.2f}")
+EOF
+```
+
+## 8. Rebuilding
 
 ```bash
 # on the cluster, as one CPU job (no GPU shards held)
