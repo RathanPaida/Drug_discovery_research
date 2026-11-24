@@ -191,7 +191,42 @@ print(f"cells disagreeing >0.5 log: {int((rng>0.5).sum()):,}  max spread {rng.ma
 EOF
 ```
 
-## 8. Rebuilding
+## 8. The rebuild is reproducible — but not to a matching sha256
+
+`kinome_chembl37.parquet` was built twice independently: once on Windows (pandas 2.3.3,
+arrow 25.0.0, 16 cores) and once on the cluster (pandas 3.1.1, numpy 2.4.6, arrow 26.0.1,
+32 cores). The result:
+
+- **every attrition number is identical** — 617,200 in, 783 exact-duplicate rows, 786
+  inconvertible units, 269,694 unique SMILES, 268,082 kept, 3,056 standardisation
+  failures, 56,888 left-censored, 428,833 out, 220,360 compounds, 459 kinases;
+- **428,807 of 428,833 rows are bit-identical**;
+- 26 rows differ: `p_activity` in **1** row by at most **8.9e-16**, `sigma_rep` in **25**
+  by at most **5.6e-17**. float64 epsilon is ~2.2e-16, so these are last-bit differences
+  from numpy reduction order, in `median()` and `std(ddof=0)` inside
+  `aggregate_replicates`;
+- **the sha256 values differ**: `74c67aca…` (Windows) vs `35e856ea…` (cluster).
+
+The digests differ both from that noise and from the parquet writer version, which
+changes encoding without changing content.
+
+**This matters for the acceptance test `DATA_PROVENANCE.md` sets.** That document says of
+a future `build_feature_store.py`:
+
+> the regenerated files must reproduce the sha256 values already in
+> `data/features/manifest.json`. That is the only check that proves the derivation is the
+> one that actually produced the published store.
+
+For *verifying bytes already on disk* that is exactly right, and it is what
+`verify_features()` does. As an acceptance test for a **rebuild**, it is unachievable:
+a semantically perfect regeneration on a different arrow version produces different bytes,
+so a failing sha256 would send someone hunting a defect that is not there. The right
+invariant for a rebuild is content equality within float tolerance — matching row counts,
+matching attrition at every step, and `abs(a - b) < 1e-9` on the float columns. Reserve
+sha256 for what it is good at: proving a file on disk, or a file that has just crossed a
+network, is the one that was published.
+
+## 9. Rebuilding
 
 ```bash
 # on the cluster, as one CPU job (no GPU shards held)
