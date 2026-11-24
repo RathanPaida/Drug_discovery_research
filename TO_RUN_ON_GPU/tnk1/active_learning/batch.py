@@ -47,13 +47,9 @@ def select_batch(pool: pd.DataFrame, n=None, max_per_cluster=2, known_scaffolds=
         return got
 
     exploit_pool = pool[pool.mu_sel >= exploit_min_sel].sort_values("lcb", ascending=False)
-    if len(exploit_pool) < n["exploit"]:
-        exploit_pool = pool.sort_values("lcb", ascending=False)
     take(exploit_pool, n["exploit"], "EXPLOIT")
 
     explore_pool = pool[pool.mu >= explore_min_mu].sort_values("ei", ascending=False)
-    if len(explore_pool) < n["explore"]:
-        explore_pool = pool.sort_values("ei", ascending=False)
     take(explore_pool, n["explore"], "EXPLORE")
 
     # centroids of Murcko scaffolds not represented in the training/in-house data or in the batch so far

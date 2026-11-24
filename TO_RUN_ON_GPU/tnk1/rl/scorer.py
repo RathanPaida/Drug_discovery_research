@@ -154,6 +154,11 @@ class Scorer:
         for c, v in comps.items():
             if c not in out: out[c] = np.zeros(n)
             out[c][vi] = v
+        for name, values in {"tox_herg_prob": herg, "tox_ames_prob": ames,
+                             "sa_score": P("sa"), "qed_score": P("qed"),
+                             "rot_bonds": P("n_rot"), "mol_weight": P("mw")}.items():
+            out[name] = np.full(n, np.nan)
+            out[name][vi] = values
         out["R"][vi], out["mu"][vi], out["sigma_epi"][vi] = total, d["mu"], d["sigma_epi"]
         out["sigma_ale"][vi], out["mu_sel"][vi], out["sigma_sel"][vi], out["d_lat"][vi] = d["sigma_ale"], sel["mu_sel"], sel["sigma_sel"], d_lat
         return {"beta": beta, **out}

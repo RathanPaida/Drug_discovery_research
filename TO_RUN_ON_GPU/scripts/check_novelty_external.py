@@ -100,7 +100,7 @@ def main():
     print(f"  Mean Kinome Max Tanimoto:               {results_df['max_tanimoto_kinome788k'].mean():.3f}", flush=True)
     print(f"  Highest Kinome Similarity in Batch:     {results_df['max_tanimoto_kinome788k'].max():.3f}", flush=True)
     print("  " + "-" * 76, flush=True)
-    print(f"  >>> 100% GLOBALLY NOVEL & PATENTABLE:   {n_novel} / {n_total} ({n_novel / n_total * 100:.1f}%) <<<", flush=True)
+    print(f"  >>> ABSENT FROM CHECKED REGISTRIES:   {n_novel} / {n_total} ({n_novel / n_total * 100:.1f}%) <<<", flush=True)
     print("=" * 80, flush=True)
 
     if n_inconclusive > 0:
@@ -151,9 +151,6 @@ def main():
     df["max_tanimoto_kinome788k"] = results_df["max_tanimoto_kinome788k"].values
 
     df.to_csv(contract_path, index=False)
-    to_team_b = PIPELINE_ROOT / "runs" / "cycle_01" / "contract_to_team_b.csv"
-    if to_team_b.exists():
-        df.to_csv(to_team_b, index=False)
     print("Contract files synchronized and locked.", flush=True)
     return 0 if (n_novel == n_total and n_inconclusive == 0) else 1
 

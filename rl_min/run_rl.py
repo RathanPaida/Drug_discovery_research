@@ -100,9 +100,10 @@ def build_pipeline_scorer(config, version, device, calibrate_n=None, cache="step
             + "\nRun `python scripts/run_stage0_check.py --require rl` for the full report."
         )
 
-    ens = Ensemble(C.cfg, C.store, C.desc_store(), proc / "ensemble", device)
-    cal = pickle.loads((proc / "calibrator.pkl").read_bytes())
-    ad = pickle.loads((proc / "ad.pkl").read_bytes())
+    from tnk1.zoo.deployment import load_predictor
+    ens = load_predictor(C)
+    cal = pickle.loads((proc / ("selected_calibrator.pkl" if C.cfg.get("critic", {}).get("backend") == "selected" else "calibrator.pkl")).read_bytes())
+    ad = pickle.loads((proc / ("selected_ad.pkl" if C.cfg.get("critic", {}).get("backend") == "selected" else "ad.pkl")).read_bytes())
     bundles = torch.load(proc / "admet_bundles.pt", weights_only=False, map_location=device)
     ref = lambda smi, e: (e.latent(smi), morgan_count(smi))
     scorer = Scorer(C.cfg, ens, cal, ad, ref, bundles, C.desc_scaler(), device)
@@ -229,6 +230,7 @@ def main(argv=None) -> int:
               f"(n={centres['n']}, target_frac={centres['target_frac']}) "
               f"in {time.time() - t0:.0f}s")
         meta["calibration"] = centres
+        (C.runs / "reward_centres.json").write_text(json.dumps({k: centres[k] for k in ("pot_c", "sel_c")}))
 
     from tnk1.utils.common import load_config as _lc0
     baseline_n = a.baseline_n

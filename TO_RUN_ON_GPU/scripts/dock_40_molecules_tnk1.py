@@ -127,12 +127,15 @@ def prepare_ligand_pdbqt(smiles: str, out_pdbqt: Path) -> bool:
         code = AllChem.EmbedMolecule(mol, params)
         if code != 0:
             # Fallback embedding
-            AllChem.EmbedMolecule(mol, useRandomCoords=True)
+            if AllChem.EmbedMolecule(mol, useRandomCoords=True, randomSeed=42) != 0:
+                return False
         AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
 
         preparator = meeko.MoleculePreparation()
         mol_setups = preparator.prepare(mol)
         res = meeko.PDBQTWriterLegacy.write_string(mol_setups[0])
+        if isinstance(res, tuple) and len(res) > 1 and not res[1]:
+            return False
         pdbqt_str = res[0] if isinstance(res, tuple) else res
 
         with open(out_pdbqt, "w") as f:
@@ -190,6 +193,8 @@ def run_docking_single(cid: str, bslice: str, smi: str, receptor_pdbqt: Path, vi
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+        if proc.returncode != 0:
+            raise RuntimeError(f"Vina exit {proc.returncode}: {proc.stderr[-1000:]}")
         output = proc.stdout
     except Exception as e:
         return {

@@ -138,7 +138,7 @@ def main(argv=None) -> int:
     splits = json.loads((proc / f"splits_{a.version}.json").read_text())
     tnk1 = cfg["targets"]["tnk1"]
 
-    t = df[(df.uniprot_id == tnk1) & (df.censored == 0)].reset_index(drop=True)
+    t = df[(df.uniprot_id == tnk1) & (df.censored == 0) & df.inchikey_block1.isin(splits["dev_keys"])].reset_index(drop=True)
     y = t.pact.values.astype(float)
     keys = t.inchikey_block1.values
     smiles = list(t.smiles)
@@ -148,10 +148,12 @@ def main(argv=None) -> int:
 
     # ---- which models ----------------------------------------------------------------
     names = ([m.strip() for m in a.models.split(",") if m.strip()] if a.models
-             else Z.shortlist(a.tag))
+             else (list(Z.REGISTRY) if a.tag == "all" else Z.shortlist(a.tag, only_available=False)))
     avail = Z.available(names)
     runnable = [n for n in names if avail[n] == "ok"]
     skipped = {n: avail[n] for n in names if avail[n] != "ok"}
+    if skipped and a.tag == "all":
+        raise SystemExit(f"Full zoo requires every dependency: {skipped}")
     if skipped:
         print(f"[zoo] SKIPPING {len(skipped)} model(s) for missing dependencies:")
         for n, why in skipped.items():

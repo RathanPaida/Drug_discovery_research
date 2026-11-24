@@ -201,11 +201,10 @@ def build_plan(version: str, device: str, cycle: int, skip_retro: bool,
                          # `al.pool_size` has always claimed. Passing only --rl-csv fed
                          # Stage 8 the top-100 replay buffer, so the funnel was starved by
                          # three orders of magnitude before any filter ran.
-                         "--agent", "{runs}/rl_min/agent.pt",
+                         "--agent", ("{runs}/rl_min/agent.pt" if rl_algo == "dap" else f"{{runs}}/rl_{rl_algo}/agent.pt"),
                          "--vocab", "{proc}/rl_min/vocab.txt",
-                         "--rl-csv", "{runs}/rl_min/best_molecules.csv"),
-              needs=["{runs}/rl_min/agent.pt", "{proc}/rl_min/vocab.txt",
-                     "{runs}/rl_min/best_molecules.csv", "{proc}/ensemble"],
+                         "--rl-csv", ("{runs}/rl_min/best_molecules.csv" if rl_algo == "dap" else f"{{runs}}/rl_{rl_algo}/best_molecules.csv")),
+              needs=[("{runs}/rl_min/agent.pt" if rl_algo == "dap" else f"{{runs}}/rl_{rl_algo}/agent.pt"), "{proc}/rl_min/vocab.txt", "{proc}/ensemble"],
               makes=["{runs}/cycle_{cyc:02d}/candidates_pre_docking.csv"], gpu=True,
               optional=True,
               note="pool -> hard gate -> dual-model audit -> Pareto -> docking request"),
@@ -292,7 +291,7 @@ def main(argv=None) -> int:
                          "version/dataset instead of rebuilding them")
     ap.add_argument("--plan", action="store_true", help="print the plan and exit")
     # --- Cycle-03 stage parameters ---------------------------------------------------
-    ap.add_argument("--zoo-tag", default="core",
+    ap.add_argument("--zoo-tag", default="all",
                     help="`zoo` stage: which shortlist to benchmark (core|slow|probe)")
     ap.add_argument("--zoo-repeats", type=int, default=10,
                     help="`zoo` stage: repeated-CV repeats. 10 gives 50 fold scores, which "

@@ -214,7 +214,14 @@ def main(argv=None) -> int:
               f"(gp_*, ngboost, qrf, rf, bayes_ridge) in Stage 2b.")
 
     # ---- honest per-row prediction for inspection ------------------------------------
-    yhat = dsl.predict(Pm)
+    from sklearn.model_selection import GroupKFold
+    import copy
+    yhat = np.full(len(Y), np.nan)
+    for tr, va in GroupKFold(min(5, len(set(groups)))).split(Pm, Y, groups):
+        fitted = copy.deepcopy(dsl)
+        if fitted.stacker_ is not None:
+            fitted.stacker_.fit(Pm[tr], Y[tr])
+        yhat[va] = fitted.predict(Pm[va])
     pd.DataFrame({"row": P.index, "key": kv.values, "y": Y, "stacked": yhat,
                   "scaffold": groups}).to_csv(f"{stem}_oof.csv", index=False)
 

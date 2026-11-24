@@ -1,0 +1,15 @@
+# Screening hypotheses, not validated thresholds or a guarantee of inhibition.
+receptor: data/structures/tnk1_kinase.pdbqt
+seeds: [42, 137, 2026]
+cpu_per_job: 4
+max_reference_similarity: 0.65
+min_predicted_pactivity: 6.0
+min_selectivity_margin: 0.0
+min_docking_improvement: 0.5
+max_docking_std: 1.0
+min_ligand_efficiency: 0.25
+min_heavy_atom_separation: 1.5
+max_per_scaffold: 2
+max_final_candidates: 40
+# Docking references are in scripts/dock_controls.py. Validate their identities,
+# receptor protonation and the inherited ATP-pocket grid before interpreting results.

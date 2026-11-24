@@ -282,11 +282,12 @@ class RankNNLSStacker:
         # target on the same [0,1] rank scale, so NNLS weights are comparable across columns
         from scipy.stats import rankdata
         yq = (rankdata(y) - 0.5) / len(y)
+        self.reference_ = np.sort(np.asarray(P, float), axis=0)
         self.inner_.fit(self._ranks(P), yq)
         return self
 
     def predict(self, P):
-        q = np.clip(self.inner_.predict(self._ranks(P)), 0.0, 1.0)
+        q = np.clip(self.inner_.predict(reference_quantiles(P, self.reference_)), 0.0, 1.0)
         if self.y_sorted_ is None:
             return q
         idx = np.clip((q * len(self.y_sorted_)).astype(int), 0, len(self.y_sorted_) - 1)
@@ -354,6 +355,7 @@ class RankAverageStacker:
 
     def fit(self, P, y):
         self.y_sorted_ = np.sort(np.asarray(y, float))
+        self.reference_ = np.sort(np.asarray(P, float), axis=0)
         return self
 
     def predict(self, P):
@@ -363,7 +365,7 @@ class RankAverageStacker:
         if self.y_sorted_ is None:
             return R
         # rank -> quantile -> the training y at that quantile
-        q = (rankdata(R) - 0.5) / len(R)
+        q = reference_quantiles(P, self.reference_).mean(axis=1)
         idx = np.clip((q * len(self.y_sorted_)).astype(int), 0, len(self.y_sorted_) - 1)
         return self.y_sorted_[idx]
 
@@ -464,7 +466,7 @@ class DiscreteSuperLearner:
                 except Exception as e:
                     warnings.warn(f"candidate {sname} failed on a fold: {e}",
                                   RuntimeWarning)
-            scores[f"stack:{sname}"] = float(np.mean(ls)) if ls else float("inf")
+            scores[f"stack:{sname}"] = float(np.mean(ls)) if len(ls) == len(folds) else float("inf")
 
         self.scores_ = scores
         self.chosen_ = min(scores, key=scores.get)
@@ -540,7 +542,7 @@ def cv_select_stacker(P, y, groups=None, candidates=None, n_splits=5, seed=0,
                 ls.append(loss(y[te], st.predict(P[te])))
             except Exception as e:
                 warnings.warn(f"stacker {name} failed on a fold: {e}", RuntimeWarning)
-        scores[name] = float(np.mean(ls)) if ls else float("inf")
+        scores[name] = float(np.mean(ls)) if len(ls) == len(folds) else float("inf")
     best = min(scores, key=scores.get)
     return best, scores
 
@@ -581,3 +583,11 @@ class SuperLearner:
             out["weights"] = ({n: float(v) for n, v in zip(self.names_, w)}
                               if self.names_ else [float(v) for v in w])
         return out
+
+
+def reference_quantiles(P, reference):
+    """Fixed training CDF: a molecule's prediction must not depend on batch peers."""
+    P = np.asarray(P, float)
+    return np.column_stack([(np.searchsorted(reference[:, j], P[:, j], side='left') +
+                             np.searchsorted(reference[:, j], P[:, j], side='right')) /
+                            (2 * len(reference)) for j in range(P.shape[1])])

@@ -122,8 +122,9 @@ def main():
         import torch
         from tnk1.uq.ensemble import Ensemble
         from tnk1.rl.scorer import Scorer
-        ens = Ensemble(cfg, C.store, C.desc_store(), C.proc / "ensemble", a.device)
-        cal, ad = pickle.load(open(C.proc / "calibrator.pkl", "rb")), pickle.load(open(C.proc / "ad.pkl", "rb"))
+        from tnk1.zoo.deployment import load_predictor
+        ens = load_predictor(C)
+        cal, ad = pickle.load(open(C.proc / ("selected_calibrator.pkl" if cfg.get("critic", {}).get("backend") == "selected" else "calibrator.pkl"), "rb")), pickle.load(open(C.proc / ("selected_ad.pkl" if cfg.get("critic", {}).get("backend") == "selected" else "ad.pkl"), "rb"))
         bundles = torch.load(C.proc / "admet_bundles.pt", weights_only=False)
         return ens, cal, ad, Scorer(cfg, ens, cal, ad, lambda s, e: (e.latent(s), morgan_count(s)), bundles, C.desc_scaler(), a.device)
 
@@ -154,12 +155,29 @@ def main():
         std = [standardize_smiles(s) for s in pool]; rows = [r for r in std if r]
         P = pd.DataFrame(rows).drop_duplicates("inchikey_block1")
         P = P[~P.inchikey_block1.isin(set(C.df.inchikey_block1))].reset_index(drop=True)      # vs ChEMBL + in-house
+        import json
+        centres = C.runs / "reward_centres.json"
+        if centres.exists():
+            cfg["rl"].update(json.loads(centres.read_text()))
         sc = scorer.score(list(P.smiles), advance=False); P = P.assign(**{k: v for k, v in sc.items() if k != "beta"})
-        P = P[P.R > 0].reset_index(drop=True)                                                 # I_hard(x) = 1
+        from tnk1.rl.reward import tpp_select
+        tpp_mask, tpp_report = tpp_select(P, cfg.get("tpp"))
+        if tpp_report["skipped"]: raise ValueError(f"Missing TPP endpoints: {tpp_report['skipped']}")
+        P = P[(P.R > 0) & tpp_mask].reset_index(drop=True)                                                 # I_hard(x) = 1
+        if P.empty:
+            P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
+            P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)
+            print("No candidate passed strict profile filters")
+            return
         # cross-architecture audit: D-MPNN ensemble vs Tanimoto GP
-        tr = C.df[(C.df.uniprot_id == C.tnk1) & (C.df.censored == 0)]
+        tr = C.tnk1_rows(C.dev_keys, censored=False)
         gp = TanimotoGP(device=a.device).fit(morgan_count(tr.smiles), tr.pact.values)
         P["mu_gp"] = gp.predict(morgan_count(P.smiles)); P = P[(P.mu - P.mu_gp).abs() <= al["audit_tol"]].reset_index(drop=True)
+        if P.empty:
+            P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
+            P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)
+            print("No candidate passed independent-model agreement")
+            return
         objs = np.c_[P.mu - P.sigma_epi, P.mu_sel - P.sigma_sel, P.adme, P.ad, P.sa, P.safety]
         P = P.iloc[ACQ.top_by_pareto(objs, al["pareto_keep"], P.R.values)].reset_index(drop=True)
         if a.skip_retro:
@@ -169,7 +187,7 @@ def main():
             P = P.assign(retro_ok=True, state_score=float("nan"), n_steps=-1)
         else:
             rs = retro_screen(list(P.smiles), a.aizynth_config, al["retro_max_steps"], al["retro_min_state_score"])
-            P = P.merge(rs[["smiles", "retro_ok", "state_score", "n_steps"]], on="smiles"); P = P[P.retro_ok]
+            P = P.merge(rs[["smiles", "retro_ok", "state_score", "n_steps", "routes_json", "route_method", "stock_name"]], on="smiles"); P = P[P.retro_ok]
         P.to_csv(cyc / "candidates_pre_docking.csv", index=False)
         P[["smiles"]].assign(docking_ok="").to_csv(cyc / "docking_request.csv", index=False)
         print(f"{len(P)} retro-feasible candidates -> send {cyc/'docking_request.csv'} to Team B (docking: hinge H-bond, no clash)")
@@ -177,10 +195,15 @@ def main():
     elif a.cmd == "select":
         ens, cal, ad, _ = load_stack(); P = pd.read_csv(cyc / "candidates_pre_docking.csv")
         dk = pd.read_csv(a.docking); P = P.merge(dk[["smiles", "docking_ok"]], on="smiles"); P = P[P.docking_ok.astype(str).str.lower().isin(["1", "true", "yes", "y"])].copy()
-        ytr = C.df[(C.df.uniprot_id == C.tnk1) & (C.df.censored == 0)]; ybest = float(ytr.pact.max())
+        ytr = C.tnk1_rows(C.dev_keys, censored=False); ybest = float(ytr.pact.max())
         P["ei"] = ACQ.expected_improvement(P.mu.values, P.sigma_epi.values, ybest, al["ei_xi"])
         P["ucb"] = ACQ.ucb(P.mu.values, P.sigma_epi.values, al["ucb_kappa"]); P["lcb"] = ACQ.lcb(P.mu.values, P.sigma_epi.values, al["exploit_lcb_k"])
         P["cluster"] = B.butina_clusters(list(P.smiles), al["butina_dist"]); P["passes_filters"] = True
+        from tnk1.rl.reward import tpp_select
+        mask, report = tpp_select(P, cfg.get("tpp"))
+        if report["skipped"]:
+            raise ValueError(f"Missing mandatory final-selection endpoints: {report['skipped']}")
+        P["passes_filters"] = mask
         # al.exploit_min_sel and al.explore_min_mu were declared in configs/default.yaml but
         # NEVER PASSED here, so `select_batch`'s own defaults applied and the two config
         # knobs did nothing. They happened to hold the same values, which is why it was
