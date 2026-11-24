@@ -1,0 +1,50 @@
+# Line endings.
+#
+# This repository is edited on Windows and RUN on a Linux cluster, so any file the
+# cluster executes has to keep LF regardless of the local checkout. Without this,
+# git's autocrlf hands the working tree CRLF, a tar of that tree carries CRLF to the
+# cluster, and bash fails in ways that do not look like a line-ending problem:
+#
+#   hpc/run_pipeline.sh: line 16: set: pipefail: invalid option name
+#   hpc/run_pipeline.sh: line 17: cd: $'hpc/..\r': No such file or directory
+#   hpc/run_pipeline.sh: line 43: syntax error near unexpected token `newline'
+#
+# Python and YAML tolerate CRLF through universal newlines; shell does not, and a
+# `#!/bin/bash\r` shebang makes the kernel look for an interpreter named "bash\r".
+*.sh      text eol=lf
+*.bash    text eol=lf
+run_tnk1.sh text eol=lf
+
+# Slurm reads these the same way bash does.
+*.sbatch  text eol=lf
+
+# Keep the rest normalised in the repository and native in the checkout.
+*.py      text
+*.yaml    text
+*.yml     text
+*.toml    text
+*.cfg     text
+*.ini     text
+*.md      text
+*.txt     text
+*.json    text
+*.csv     text
+
+# Binary: never touch, never diff.
+*.parquet binary
+*.npz     binary
+*.npy     binary
+*.pt      binary
+*.pkl     binary
+*.db      binary
+*.pdf     binary
+*.png     binary
+*.zip     binary
+*.gz      binary
+*.tar.gz  binary
+*.onnx    binary
+*.hdf5    binary
+*.ipynb   binary
+*.pdb     binary
+*.pdbqt   binary
+*.cif     binary
